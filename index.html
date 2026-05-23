@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Finance Spreadsheet</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     Sidebar
+══════════════════════════════════════════ -->
+<div class="sidebar">
+    <div class="sidebar-label">Sheets</div>
+    <div class="tab active" onclick="showTab('monthly-ideal',   this)">Monthly Ideal</div>
+    <div class="tab"        onclick="showTab('monthly-real',    this)">Monthly Real</div>
+    <div class="tab"        onclick="showTab('credit-card',     this)">Credit-Card Expenses</div>
+    <div class="tab"        onclick="showTab('subscription',    this)">Subscription_List</div>
+    <div class="tab"        onclick="showTab('monthly-records', this)">Monthly Records</div>
+    <div class="tab"        onclick="showTab('edit',            this)">Edit</div>
+    <div class="sidebar-clock" id="sidebarClock"></div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     Content
+══════════════════════════════════════════ -->
+<div class="content">
+
+    <!-- ── Verse Banner ── -->
+    <div class="verse-banner">"But seek first his kingdom and his righteousness, and all these things will be given to you as well." — Matthew 6:33</div>
+
+    <!-- ── Monthly Ideal ── -->
+    <div class="sheet active" id="monthly-ideal">
+        <div class="sheet-body">
+
+            <div class="left-col">
+
+                <!-- Income box -->
+                <div class="box">
+                    <div class="box-title">Income</div>
+                    <div class="income-cols">
+
+                        <!-- Col 1: Pretax Annual + Pretax Monthly (read-only) -->
+                        <div class="income-stack">
+                            <div class="income-section">
+                                <div class="section-total">Pretax Annual: <span id="annualTotal">$0</span></div>
+                                <div class="box-row"><label>Base</label>            <span class="val-display">$<span id="baseDisplay">0</span></span></div>
+                                <div class="box-row"><label>Stock Refresher</label> <span class="val-display">$<span id="refresherDisplay">0</span></span></div>
+                                <div class="box-row"><label>RSU</label>             <span class="val-display">$<span id="rsuDisplay">0</span></span></div>
+                                <div class="box-row">
+                                    <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
+                                    <span class="val-display">$<span id="bonusAnnualDisplay">0</span></span>
+                                </div>
+                            </div>
+                            <div class="income-section">
+                                <div class="section-total">Pretax Monthly: <span id="preTaxMonthlyTotal">$0</span></div>
+                                <div class="box-row"><label>Base</label>            <span class="val-display">$<span id="baseMonthlyDisplay">0</span></span></div>
+                                <div class="box-row"><label>RSU</label>             <span id="rsu1MonthlyDisplay"></span></div>
+                                <div class="box-row"><label>Stock Refresher</label> <span id="rsu2MonthlyDisplay"></span></div>
+                                <div class="box-row">
+                                    <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
+                                    <span class="val-display">$<span id="bonusMonthlyDisplay">0</span></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Col 2: PostTax Annual + PostTax Monthly -->
+                        <div class="income-stack">
+                            <div class="income-section">
+                                <div class="section-total">PostTax Annual: $<span id="postTaxAnnual">0</span></div>
+                                <div class="box-row"><label>Base</label>
+                                    <span>−$<span id="baseTaxAmt">0</span> = $<span id="baseNet">0</span></span></div>
+                                <div class="box-row"><label>Stock Refresher</label>
+                                    <span>−$<span id="refresherTaxAmt">0</span> = $<span id="refresherNet">0</span></span></div>
+                                <div class="box-row"><label>RSU</label>
+                                    <span>−$<span id="rsuTaxAmt">0</span> = $<span id="rsuNet">0</span></span></div>
+                                <div class="box-row">
+                                    <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
+                                    <span>−$<span id="bonusTaxAmt">0</span> = $<span id="bonusNet">0</span></span>
+                                </div>
+                                <div class="box-row total-row"><label>Total Tax Cut</label>
+                                    <span>−$<span id="totalTaxAmt">0</span></span></div>
+                            </div>
+                            <div class="income-section">
+                                <div class="section-total">PostTax Monthly: $<span id="postTaxMonthly">0</span></div>
+                                <div class="box-row"><label>Base</label>
+                                    <span>−$<span id="baseMonthlyTax">0</span> = $<span id="baseMonthlyNet">0</span></span></div>
+                                <div class="box-row"><label>RSU</label>             <span id="rsu1MonthlyPostDisplay"></span></div>
+                                <div class="box-row"><label>Stock Refresher</label> <span id="rsu2MonthlyPostDisplay"></span></div>
+                                <div class="box-row">
+                                    <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
+                                    <span>−$<span id="bonusMonthlyTax">0</span> = $<span id="bonusMonthlyNet">0</span></span>
+                                </div>
+                                <div class="box-row total-row"><label>Total Tax Cut</label>
+                                    <span>−$<span id="totalMonthlyTaxAmt">0</span></span></div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Savings box -->
+                <div class="box">
+                    <div class="box-title">Savings</div>
+                    <div class="box-body">
+                        <div class="box-row"><label>Roth IRA</label>                <span class="money-wrap">$<input class="val-input" type="number" id="rothIRA"  value="0" oninput="calculate()"></span></div>
+                        <div class="box-row"><label>HSA</label>                     <span class="money-wrap">$<input class="val-input" type="number" id="hsa"      value="0" oninput="calculate()"></span></div>
+                        <div class="box-row"><label>Fidelity Stock Portfolio</label> <span class="money-wrap">$<input class="val-input" type="number" id="fidelity" value="0" oninput="calculate()"></span></div>
+                    </div>
+                </div>
+
+                <!-- Tithing box -->
+                <div class="box">
+                    <div class="box-title">Tithing</div>
+                    <div class="box-body">
+                        <div class="box-row"><label>Church (<span id="churchPctDisp">3.5</span>%)</label>    <span>$<span id="titheChurch">0</span></span></div>
+                        <div class="box-row"><label>TCBC (<span id="tcbcPctDisp">3.5</span>%)</label>        <span>$<span id="titheTCBC">0</span></span></div>
+                        <div class="box-row"><label>IV (<span id="ivPctDisp">2</span>%)</label>              <span>$<span id="titheIV">0</span></span></div>
+                        <div class="box-row"><label>Cornell_Kcc (<span id="kccPctDisp">1</span>%)</label>    <span>$<span id="titheKcc">0</span></span></div>
+                        <div class="box-row total-row">
+                            <label>Total (<span id="titheTotalPctDisp">10</span>%)</label>
+                            <span>$<span id="titheTotal">0</span></span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right column -->
+            <div class="right-col">
+                <div class="avg-block">
+                    <div class="avg-label">Monthly Average</div>
+                    <div class="avg-value"><span id="monthlyAvg">$0</span></div>
+                </div>
+                <div class="box">
+                    <div class="box-title">Monthly Expenses — Total: $<span id="expTotal">0</span></div>
+                    <div class="box-body">
+                        <!-- Dynamic expense rows injected by renderExpenses() -->
+                        <div id="idealExpenseList"></div>
+                        <!-- Subscriptions — auto-calculated from Subscription_List -->
+                        <div class="box-row sub-auto-row">
+                            <label>Subscriptions (auto)</label>
+                            <span>$<span id="subTotalDisplay">0</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ── Monthly Real ── -->
+    <div class="sheet" id="monthly-real">
+        <div class="sheet-body"><p>Monthly Real</p></div>
+    </div>
+
+    <!-- ── Credit-Card Expenses ── -->
+    <div class="sheet" id="credit-card">
+        <div class="sheet-body"><p>Credit-Card Expenses</p></div>
+    </div>
+
+    <!-- ── Subscription_List ── -->
+    <div class="sheet" id="subscription">
+        <div class="sheet-body">
+            <div class="box">
+                <div class="box-title">Subscription List — Monthly Total: $<span id="subListTotal">0</span></div>
+                <div class="box-body" id="subListDisplay"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Monthly Records ── -->
+    <div class="sheet" id="monthly-records">
+        <div class="sheet-body"><p>Monthly Records</p></div>
+    </div>
+
+    <!-- ── Edit ── -->
+    <div class="sheet" id="edit">
+        <div class="sheet-body">
+            <div class="box">
+                <div class="box-title">Edit</div>
+                <div class="box-body">
+
+                    <div class="edit-divider">Income</div>
+                    <div class="box-row"><label>Base Salary</label>     <span class="money-wrap">$<input class="val-input" type="number" id="base"      value="115300" oninput="calculate()"></span></div>
+                    <div class="box-row"><label>Stock Refresher</label> <span class="money-wrap">$<input class="val-input" type="number" id="refresher" value="20000"  oninput="calculate()"></span></div>
+                    <div class="box-row"><label>RSU</label>             <span class="money-wrap">$<input class="val-input" type="number" id="rsu"        value="20000"  oninput="calculate()"></span></div>
+                    <div class="box-row"><label>Bonus % of Base</label> <span class="pct-wrap"><input class="pct-input" type="number" id="bonusPct" value="8" step="0.1" oninput="calculate()">%</span></div>
+
+                    <div class="edit-divider">Tax Rates</div>
+                    <div class="box-row"><label>Federal Tax</label>     <span class="pct-wrap"><input class="pct-input" type="number" id="taxFed"   value="22"   step="0.1" oninput="calculate()">%</span></div>
+                    <div class="box-row"><label>State Tax</label>       <span class="pct-wrap"><input class="pct-input" type="number" id="taxState" value="5"    step="0.1" oninput="calculate()">%</span></div>
+                    <div class="box-row"><label>Social Security</label> <span class="pct-wrap"><input class="pct-input" type="number" id="taxSS"    value="6.2"  step="0.1" oninput="calculate()">%</span></div>
+                    <div class="box-row"><label>Medicare</label>        <span class="pct-wrap"><input class="pct-input" type="number" id="taxMed"   value="1.45" step="0.1" oninput="calculate()">%</span></div>
+
+                    <div class="edit-divider">Tithing Rates</div>
+                    <div class="box-row"><label>Church</label>      <span class="pct-wrap"><input class="pct-input" type="number" id="titheChurchPct" value="3.5" step="0.1" oninput="calculate()">%</span></div>
+                    <div class="box-row"><label>TCBC</label>        <span class="pct-wrap"><input class="pct-input" type="number" id="titheTCBCPct"  value="3.5" step="0.1" oninput="calculate()">%</span></div>
+                    <div class="box-row"><label>IV</label>          <span class="pct-wrap"><input class="pct-input" type="number" id="titheIVPct"    value="2"   step="0.1" oninput="calculate()">%</span></div>
+                    <div class="box-row"><label>Cornell_Kcc</label> <span class="pct-wrap"><input class="pct-input" type="number" id="titheKccPct"   value="1"   step="0.1" oninput="calculate()">%</span></div>
+
+                    <div class="edit-divider">Monthly Expenses</div>
+                    <div id="editExpenseList"></div>
+                    <button class="add-btn" onclick="addExpense()">+ Add Expense</button>
+
+                    <div class="edit-divider">Subscriptions</div>
+                    <div id="editSubList"></div>
+                    <button class="add-btn" onclick="addSubscription()">+ Add Subscription</button>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

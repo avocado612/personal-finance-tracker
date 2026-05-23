@@ -1,0 +1,72 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Arial, sans-serif; font-size: 15px; background: #fff; color: #000; display: flex; height: 100vh; overflow: hidden; }
+
+/* ── Sidebar ── */
+.sidebar { width: 170px; border-right: 1px solid #bbb; background: #f2f2f2; display: flex; flex-direction: column; flex-shrink: 0; }
+.sidebar-label { padding: 8px 10px; font-size: 13px; color: #555; border-bottom: 1px solid #ccc; }
+.tab { padding: 9px 12px; cursor: pointer; border-bottom: 1px solid #ccc; font-size: 14px; user-select: none; }
+.tab.active { background: #fff; font-weight: bold; border-left: 3px solid #000; }
+.tab:hover:not(.active) { background: #e4e4e4; }
+.sidebar-clock { margin-top: auto; padding: 10px; font-size: 12px; color: #555; border-top: 1px solid #ccc; line-height: 1.6; }
+
+/* ── Content ── */
+.content { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+
+/* ── Verse Banner ── */
+.verse-banner { width: 100%; padding: 8px 20px; text-align: center; font-style: italic; font-size: 14px; color: #444; border-bottom: 1px solid #ccc; background: #fafafa; flex-shrink: 0; }
+.sheet { display: none; flex: 1; overflow: auto; }
+.sheet.active { display: block; }
+.sheet-body { display: flex; gap: 20px; padding: 20px; align-items: flex-start; }
+.left-col  { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.right-col { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── Box chrome ── */
+.box { border: 1px solid #999; }
+.box-title { font-weight: bold; font-size: 14px; padding: 5px 10px; border-bottom: 1px solid #999; background: #f7f7f7; }
+.box-body { padding: 8px 14px; display: flex; flex-direction: column; gap: 5px; }
+
+/* ── Rows ── */
+.box-row { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.box-row label { color: #444; white-space: nowrap; }
+.box-row.total-row { border-top: 1px solid #ccc; margin-top: 4px; padding-top: 4px; font-weight: bold; }
+.box-row.sub-auto-row { border-top: 1px dashed #ccc; margin-top: 4px; padding-top: 4px; color: #555; }
+
+/* ── Income box layout ── */
+.income-cols { display: flex; }
+.income-stack { display: flex; flex-direction: column; }
+.income-section { padding: 8px 14px; display: flex; flex-direction: column; gap: 5px; }
+.income-section + .income-section { border-top: 1px solid #ccc; }
+.income-stack + .income-stack { border-left: 1px solid #ccc; }
+.section-total { font-weight: bold; font-size: 15px; padding-bottom: 4px; border-bottom: 1px solid #eee; margin-bottom: 3px; }
+
+/* ── Inputs ── */
+input[type=number], input[type=text] { border: none; outline: none; font-size: 15px; font-family: Arial, sans-serif; background: transparent; }
+input[type=number] { text-align: right; }
+input.val-input { width: 72px; }
+input.pct-input { width: 38px; }
+input.name-input { width: 140px; border-bottom: 1px solid #bbb !important; }
+input.name-input:focus { border-bottom-color: #000 !important; }
+
+.money-wrap { display: inline-flex; align-items: baseline; border-bottom: 1px solid #bbb; }
+.money-wrap:focus-within { border-bottom-color: #000; }
+.pct-wrap { display: inline-flex; align-items: baseline; border-bottom: 1px solid #bbb; }
+.pct-wrap:focus-within { border-bottom-color: #000; }
+.val-display { color: #000; }
+
+/* ── Edit tab ── */
+.edit-divider { color: #666; font-size: 13px; font-weight: bold; margin-top: 10px; padding-top: 6px; border-top: 1px solid #ddd; }
+.edit-divider:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.edit-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+
+/* ── Buttons ── */
+.del-btn { border: none; background: none; cursor: pointer; font-size: 17px; color: #b00; padding: 0 2px; line-height: 1; }
+.del-btn:hover { color: #f00; }
+.add-btn { margin-top: 6px; border: 1px solid #999; background: #f7f7f7; cursor: pointer; font-size: 13px; padding: 4px 10px; }
+.add-btn:hover { background: #eee; }
+
+/* ── Monthly Average ── */
+.avg-block .avg-label { font-weight: bold; margin-bottom: 4px; }
+.avg-block .avg-value { font-size: 17px; font-weight: bold; }
+
+/* ── Subscription list tab ── */
+.sub-empty { color: #999; font-size: 13px; padding: 4px 0; }
