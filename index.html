@@ -42,7 +42,7 @@
 
                         <!-- Col 1: Pretax Annual + Pretax Monthly (read-only) -->
                         <div class="income-stack">
-                            <div class="income-section">
+                            <div class="income-section pretax-annual">
                                 <div class="section-total">Pretax Annual: <span id="annualTotal">$0</span></div>
                                 <div class="box-row"><label>Base</label>            <span class="val-display">$<span id="baseDisplay">0</span></span></div>
                                 <div class="box-row"><label>Stock Refresher</label> <span class="val-display">$<span id="refresherDisplay">0</span></span></div>
@@ -52,7 +52,7 @@
                                     <span class="val-display">$<span id="bonusAnnualDisplay">0</span></span>
                                 </div>
                             </div>
-                            <div class="income-section">
+                            <div class="income-section pretax-monthly">
                                 <div class="section-total">Pretax Monthly: <span id="preTaxMonthlyTotal">$0</span></div>
                                 <div class="box-row"><label>Base</label>            <span class="val-display">$<span id="baseMonthlyDisplay">0</span></span></div>
                                 <div class="box-row"><label>RSU</label>             <span id="rsu1MonthlyDisplay"></span></div>
@@ -66,33 +66,43 @@
 
                         <!-- Col 2: PostTax Annual + PostTax Monthly -->
                         <div class="income-stack">
-                            <div class="income-section">
+                            <div class="income-section posttax-annual">
                                 <div class="section-total">PostTax Annual: $<span id="postTaxAnnual">0</span></div>
-                                <div class="box-row"><label>Base</label>
-                                    <span>−$<span id="baseTaxAmt">0</span> = $<span id="baseNet">0</span></span></div>
-                                <div class="box-row"><label>Stock Refresher</label>
-                                    <span>−$<span id="refresherTaxAmt">0</span> = $<span id="refresherNet">0</span></span></div>
-                                <div class="box-row"><label>RSU</label>
-                                    <span>−$<span id="rsuTaxAmt">0</span> = $<span id="rsuNet">0</span></span></div>
-                                <div class="box-row">
-                                    <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
-                                    <span>−$<span id="bonusTaxAmt">0</span> = $<span id="bonusNet">0</span></span>
+                                <div class="section-content-row">
+                                    <div class="section-rows">
+                                        <div class="box-row"><label>Base</label>
+                                            <span>−$<span id="baseTaxAmt">0</span> = $<span id="baseNet">0</span></span></div>
+                                        <div class="box-row"><label>Stock Refresher</label>
+                                            <span>−$<span id="refresherTaxAmt">0</span> = $<span id="refresherNet">0</span></span></div>
+                                        <div class="box-row"><label>RSU</label>
+                                            <span>−$<span id="rsuTaxAmt">0</span> = $<span id="rsuNet">0</span></span></div>
+                                        <div class="box-row">
+                                            <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
+                                            <span>−$<span id="bonusTaxAmt">0</span> = $<span id="bonusNet">0</span></span>
+                                        </div>
+                                        <div class="box-row total-row"><label>Total Tax Cut</label>
+                                            <span>−$<span id="totalTaxAmt">0</span></span></div>
+                                    </div>
+                                    <div class="tax-rate-info" id="taxRateNoteAnnual"></div>
                                 </div>
-                                <div class="box-row total-row"><label>Total Tax Cut</label>
-                                    <span>−$<span id="totalTaxAmt">0</span></span></div>
                             </div>
-                            <div class="income-section">
+                            <div class="income-section posttax-monthly">
                                 <div class="section-total">PostTax Monthly: $<span id="postTaxMonthly">0</span></div>
-                                <div class="box-row"><label>Base</label>
-                                    <span>−$<span id="baseMonthlyTax">0</span> = $<span id="baseMonthlyNet">0</span></span></div>
-                                <div class="box-row"><label>RSU</label>             <span id="rsu1MonthlyPostDisplay"></span></div>
-                                <div class="box-row"><label>Stock Refresher</label> <span id="rsu2MonthlyPostDisplay"></span></div>
-                                <div class="box-row">
-                                    <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
-                                    <span>−$<span id="bonusMonthlyTax">0</span> = $<span id="bonusMonthlyNet">0</span></span>
+                                <div class="section-content-row">
+                                    <div class="section-rows">
+                                        <div class="box-row"><label>Base</label>
+                                            <span>−$<span id="baseMonthlyTax">0</span> = $<span id="baseMonthlyNet">0</span></span></div>
+                                        <div class="box-row"><label>RSU</label>             <span id="rsu1MonthlyPostDisplay"></span></div>
+                                        <div class="box-row"><label>Stock Refresher</label> <span id="rsu2MonthlyPostDisplay"></span></div>
+                                        <div class="box-row">
+                                            <label>Bonus (<span class="bonus-pct-lbl">8</span>% base)</label>
+                                            <span>−$<span id="bonusMonthlyTax">0</span> = $<span id="bonusMonthlyNet">0</span></span>
+                                        </div>
+                                        <div class="box-row total-row"><label>Total Tax Cut</label>
+                                            <span>−$<span id="totalMonthlyTaxAmt">0</span></span></div>
+                                    </div>
+                                    <div class="tax-rate-info" id="taxRateNoteMonthly"></div>
                                 </div>
-                                <div class="box-row total-row"><label>Total Tax Cut</label>
-                                    <span>−$<span id="totalMonthlyTaxAmt">0</span></span></div>
                             </div>
                         </div>
 
@@ -109,6 +119,14 @@
                     </div>
                 </div>
 
+            </div>
+
+            <!-- Right column -->
+            <div class="right-col">
+                <div class="avg-block">
+                    <div class="avg-label">Monthly Average</div>
+                    <div class="avg-value"><span id="monthlyAvg">$0</span></div>
+                </div>
                 <!-- Tithing box -->
                 <div class="box">
                     <div class="box-title">Tithing</div>
@@ -122,15 +140,6 @@
                             <span>$<span id="titheTotal">0</span></span>
                         </div>
                     </div>
-                </div>
-
-            </div>
-
-            <!-- Right column -->
-            <div class="right-col">
-                <div class="avg-block">
-                    <div class="avg-label">Monthly Average</div>
-                    <div class="avg-value"><span id="monthlyAvg">$0</span></div>
                 </div>
                 <div class="box">
                     <div class="box-title">Monthly Expenses — Total: $<span id="expTotal">0</span></div>
@@ -156,7 +165,62 @@
 
     <!-- ── Credit-Card Expenses ── -->
     <div class="sheet" id="credit-card">
-        <div class="sheet-body"><p>Credit-Card Expenses</p></div>
+        <div class="sheet-body" style="flex-direction: column;">
+            <div class="box" style="width:100%;">
+                <div class="box-title">Upload Wells Fargo CSV</div>
+                <div class="box-body" style="flex-direction: row; align-items: center; gap: 16px;">
+                    <input type="file" id="csvFileInput" accept=".csv" onchange="loadCSV(this)">
+                    <button class="add-btn" onclick="clearCSV()">Clear</button>
+                    <span id="csvStatus" style="font-size:13px; color:#666;"></span>
+                </div>
+            </div>
+            <!-- Analytics (shown after load) -->
+            <div id="ccAnalytics" style="display:none; width:100%; margin-top:12px;">
+                <div class="analytics-cards">
+                    <div class="summary-card"><div class="summary-label">Total Charged</div><div class="summary-value" id="ccTotalCharged">—</div></div>
+                    <div class="summary-card"><div class="summary-label">Transactions</div><div class="summary-value" id="ccTotalTxn">—</div></div>
+                    <div class="summary-card"><div class="summary-label">Monthly Avg</div><div class="summary-value" id="ccMonthlyAvg">—</div></div>
+                </div>
+                <div class="analytics-tables">
+                    <div class="box cc-month-box">
+                        <div class="box-title">Monthly Expenses</div>
+                        <div class="box-body" id="ccMonthlyBody"></div>
+                    </div>
+                    <div class="cat-boxes-col">
+                        <div class="box">
+                            <div class="box-title">Expense Categories — <span id="ccMonthCatTitle">Month</span></div>
+                            <div class="box-body" id="ccMonthCategoryBody">
+                                <p class="sub-empty" style="padding:8px 0;">← Click a month to see its breakdown</p>
+                            </div>
+                        </div>
+                        <div class="box">
+                            <div class="box-title">Expense Categories — Range</div>
+                            <div class="box-body">
+                                <div class="cat-filter-row">
+                                    <span class="filter-lbl">From</span>
+                                    <input type="date" id="ccDateFrom" class="date-filter-input" onchange="ccApplyDateFilter()">
+                                    <span class="filter-lbl">to</span>
+                                    <input type="date" id="ccDateTo" class="date-filter-input" onchange="ccApplyDateFilter()">
+                                    <button class="add-btn" style="margin-top:0; padding:2px 8px;" onclick="setCcDateToToday()">Current</button>
+                                </div>
+                                <div id="ccCategoryBody"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="box" style="width:100%; margin-top: 12px;" id="csvPreviewBox">
+                <div class="box-title">Raw CSV Contents</div>
+                <div style="overflow-x: auto; padding: 10px;">
+                    <table id="csvTable" class="csv-table">
+                        <thead id="csvHead"></thead>
+                        <tbody id="csvBody"></tbody>
+                    </table>
+                    <p id="csvEmpty" style="color:#999; font-size:13px;">No file loaded yet.</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- ── Subscription_List ── -->
@@ -206,6 +270,10 @@
                     <div class="edit-divider">Subscriptions</div>
                     <div id="editSubList"></div>
                     <button class="add-btn" onclick="addSubscription()">+ Add Subscription</button>
+
+                    <div class="edit-divider">Custom Category Keywords</div>
+                    <div style="font-size:12px; color:#888; margin-bottom:8px;">Add keywords under each category — matched against CC transactions before built-in rules</div>
+                    <div id="editCustomKeywords"></div>
 
                 </div>
             </div>
