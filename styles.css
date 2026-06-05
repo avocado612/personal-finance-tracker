@@ -23,6 +23,7 @@ body { font-family: Arial, sans-serif; font-size: 15px; background: #fff; color:
 /* ── Box chrome ── */
 .box { border: 1px solid #999; }
 .box-title { font-weight: bold; font-size: 14px; padding: 5px 10px; border-bottom: 1px solid #999; background: #f7f7f7; }
+.box-title.collapsible:hover { background: #efefef; }
 .box-body { padding: 8px 14px; display: flex; flex-direction: column; gap: 5px; }
 
 /* ── Rows ── */
@@ -48,6 +49,7 @@ input.val-input { width: 72px; }
 input.pct-input { width: 38px; }
 input.name-input { width: 140px; border-bottom: 1px solid #bbb !important; }
 input.name-input:focus { border-bottom-color: #000 !important; }
+#editExpenseList input.name-input { width: auto; flex: 1; }
 
 .money-wrap { display: inline-flex; align-items: baseline; border-bottom: 1px solid #bbb; }
 .money-wrap:focus-within { border-bottom-color: #000; }
@@ -68,6 +70,19 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .del-btn:hover { color: #f00; }
 .add-btn { margin-top: 6px; border: 1px solid #999; background: #f7f7f7; cursor: pointer; font-size: 13px; padding: 4px 10px; }
 .add-btn:hover { background: #eee; }
+.save-cats-btn { border: none; background: #27ae60; color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; padding: 6px 16px; border-radius: 4px; letter-spacing: 0.3px; }
+.save-cats-btn:hover { background: #219150; }
+
+/* ── Vest month checkboxes ── */
+.vest-chk-lbl { display:flex; align-items:center; gap:4px; font-size:13px; cursor:pointer; user-select:none; }
+.vest-chk-lbl input { cursor:pointer; }
+
+/* ── Tax checkbox rows ── */
+.tax-check-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; flex-wrap: wrap; }
+.tax-check-row input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+.tax-check-row label { font-weight: 600; min-width: 160px; cursor: pointer; }
+.tax-eff-rate { font-size: 12px; color: #1558b0; font-weight: 700; min-width: 70px; }
+.tax-detail { font-size: 11px; color: #aaa; }
 
 /* ── Monthly Average ── */
 .avg-block .avg-label { font-weight: bold; margin-bottom: 4px; }
@@ -84,11 +99,17 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 /* ── CC Analytics ── */
 .analytics-cards { display: flex; gap: 12px; margin-bottom: 12px; }
 .summary-card { border: 1px solid #999; flex: 1; padding: 10px 14px; background: #fafafa; }
+.summary-card-clickable { cursor: pointer; transition: box-shadow 0.15s, background 0.15s; user-select: none; }
+.summary-card-clickable:hover { background: #f0f0f0; }
+.summary-card-active { background: #1a1a2e !important; border-color: #1a1a2e !important; }
+.summary-card-active .summary-label { color: #aaa; }
+.summary-card-active .summary-value { color: #fff !important; }
 .summary-label { font-size: 12px; color: #666; margin-bottom: 4px; }
 .summary-value { font-size: 20px; font-weight: bold; }
 .summary-value-sm { font-size: 13px; padding-top: 4px; }
 .analytics-tables { display: flex; gap: 12px; align-items: flex-start; }
-.cc-month-box { flex: 0 0 360px !important; }
+.analytics-left-col { flex: 0 0 460px; display: flex; flex-direction: column; gap: 12px; }
+.analytics-left-col .box { width: 100%; }
 .cat-boxes-col { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
 .cat-boxes-col .box { width: 100%; }
 
@@ -157,6 +178,28 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .csv-month-b td { background: #eef2f8; }
 .csv-cat-cell { color: #555; font-size: 12px; font-style: italic; white-space: nowrap; }
 
+/* ── Raw table Plaid rows ── */
+.raw-plaid-row td { background: #e8f4fd; }
+.raw-plaid-row:hover td { background: #d0e8f7 !important; }
+
+/* ── Plaid live data indicators ── */
+.month-plaid td { background: #e0f0fb !important; color: #1a6fa8; }
+.month-plaid:hover td { background: #c8e4f5 !important; }
+.month-plaid-marker td {
+    background: #1a6fa8 !important;
+    color: #fff;
+    font-style: italic;
+    font-size: 11px;
+    text-align: center;
+    padding: 5px 8px;
+    border-top: none;
+    cursor: default;
+}
+/* Plaid transaction rows inside category detail panels */
+.txn-plaid { background: #edf5fc; border-left: 3px solid #4a9fd4; }
+.txn-plaid:hover { background: #d8ecf8 !important; }
+.plaid-badge { font-size: 10px; margin-right: 3px; flex-shrink: 0; opacity: 0.8; }
+
 /* ── Keyword columns (Edit tab) ── */
 .kw-col { border: 1px solid #ccc; padding: 8px; min-width: 115px; background: #fafafa; }
 .kw-col-title { font-weight: bold; font-size: 13px; margin-bottom: 6px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
@@ -171,9 +214,23 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .sub-cat-header { font-size: 11px; font-weight: bold; color: #666; background: #f0f0f0; padding: 2px 6px; margin: 4px 0 2px; border-left: 3px solid #bbb; }
 .sub-cat-header.sub-cat-other { color: #aaa; border-left-color: #ddd; }
 
+/* ── Raw table alpha-group header ── */
+.raw-alpha-group td { background: #1a1a2e !important; color: #fff; font-weight: bold; font-size: 12px; padding: 3px 10px; letter-spacing: 1px; }
+
 /* ── CSV table ── */
 .csv-table { display: none; border-collapse: collapse; font-size: 10px; white-space: nowrap; }
 .csv-table th { background: #f2f2f2; border: 1px solid #ccc; padding: 5px 10px; text-align: left; font-weight: bold; }
 .csv-table td { border: 1px solid #ddd; padding: 4px 10px; }
 .csv-table .csv-even { background: #fff; }
 .csv-table .csv-odd  { background: #fafafa; }
+
+/* ── Account stacked bars ── */
+.cat-bar-stacked { overflow: hidden; border-radius: 3px; }
+.acct-seg { height: 100%; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; min-width: 4px; }
+.acct-seg-label { font-size: 9px; color: rgba(255,255,255,0.9); font-weight: bold; white-space: nowrap; overflow: hidden; pointer-events: none; }
+
+/* ── Account transaction badge ── */
+.acct-txn-badge { display: inline-block; padding: 0px 4px; border-radius: 3px; font-size: 10px; font-weight: bold; color: #fff; margin-right: 3px; flex-shrink: 0; vertical-align: middle; }
+
+/* ── Connected account pill ── */
+.acct-badge { padding: 6px 12px; border: 1px solid #ddd; background: #fafafa; font-size: 12px; display: flex; align-items: center; gap: 6px; }

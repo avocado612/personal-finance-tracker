@@ -14,7 +14,7 @@
     <div class="sidebar-label">Sheets</div>
     <div class="tab active" onclick="showTab('monthly-ideal',   this)">Monthly Ideal</div>
     <div class="tab"        onclick="showTab('monthly-real',    this)">Monthly Real</div>
-    <div class="tab"        onclick="showTab('credit-card',     this)">Credit-Card Expenses</div>
+    <div class="tab"        onclick="showTab('credit-card',     this)">Expenses</div>
     <div class="tab"        onclick="showTab('subscription',    this)">Subscription_List</div>
     <div class="tab"        onclick="showTab('monthly-records', this)">Monthly Records</div>
     <div class="tab"        onclick="showTab('edit',            this)">Edit</div>
@@ -126,6 +126,9 @@
                 <div class="avg-block">
                     <div class="avg-label">Monthly Average</div>
                     <div class="avg-value"><span id="monthlyAvg">$0</span></div>
+                    <div style="margin-top:4px; font-size:12px; color:#888;">Pre-tax</div>
+                    <div class="avg-value" style="margin-top:8px;"><span id="monthlyAvgPostTax" style="color:#27ae60;">$0</span></div>
+                    <div style="font-size:12px; color:#27ae60;">After tax</div>
                 </div>
                 <!-- Tithing box -->
                 <div class="box">
@@ -166,35 +169,100 @@
     <!-- ── Credit-Card Expenses ── -->
     <div class="sheet" id="credit-card">
         <div class="sheet-body" style="flex-direction: column;">
-            <div class="box" style="width:100%;">
-                <div class="box-title">Upload Wells Fargo CSV</div>
-                <div class="box-body" style="flex-direction: row; align-items: center; gap: 16px;">
-                    <input type="file" id="csvFileInput" accept=".csv" onchange="loadCSV(this)">
-                    <button class="add-btn" onclick="clearCSV()">Clear</button>
-                    <span id="csvStatus" style="font-size:13px; color:#666;"></span>
+            <!-- Top row: Live Bank Sync (left) + CSV Upload (right) -->
+            <div style="display:flex; gap:12px; width:100%; align-items:flex-start;">
+
+                <!-- Live Bank Sync box -->
+                <div class="box" style="flex:1; min-width:0;">
+                    <div class="box-title">Live Bank Sync</div>
+                    <div class="box-body" style="flex-direction:column; gap:10px;">
+                        <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+                            <button class="add-btn" id="plaidToggleBtn" onclick="plaidToggle()" style="font-weight:bold; min-width:140px;">Connect Bank</button>
+                            <span id="plaidStatus" style="font-size:13px; color:#666;"></span>
+                        </div>
+                        <div id="plaidLastSyncRow" style="display:none; font-size:11px; color:#aaa;">
+                            Last synced: <span id="plaidLastSync"></span>
+                        </div>
+                        <!-- Real-time account list, shown after sync -->
+                        <div id="plaidAccountsInBox" style="display:none;">
+                            <div style="font-size:11px; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px;">
+                                🏛 <span id="plaidInstitutionName">Live Accounts</span>
+                            </div>
+                            <div id="plaidAccountsList" style="display:flex; flex-direction:column; gap:5px;"></div>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Upload Account CSVs box -->
+                <div class="box" style="flex:1; min-width:0;">
+                    <div class="box-title">Upload Account CSVs</div>
+                    <div class="box-body" style="flex-direction:column; gap:10px;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <input type="text" id="csvAccountLabel" placeholder="Account name (e.g. WF Active Cash)" style="font-size:13px; border:1px solid #bbb; padding:4px 8px; width:200px; font-family:Arial,sans-serif;">
+                            <input type="file" id="csvFileInput" accept=".csv" onchange="loadCSV(this)">
+                        </div>
+                        <div id="loadedAccountsList" style="font-size:12px; color:#666;"></div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span id="csvStatus" style="font-size:12px; color:#888; flex:1;"></span>
+                            <button class="add-btn" onclick="clearCSV()" style="margin-top:0; font-size:12px; padding:3px 10px;">Clear All</button>
+                        </div>
+                    </div>
+                </div>
+
             </div>
             <!-- Analytics (shown after load) -->
             <div id="ccAnalytics" style="display:none; width:100%; margin-top:12px;">
                 <div class="analytics-cards">
-                    <div class="summary-card"><div class="summary-label">Total Charged</div><div class="summary-value" id="ccTotalCharged">—</div></div>
+                    <div class="summary-card summary-card-clickable summary-card-active" id="card-charged" onclick="setSummaryMode('charged')">
+                        <div class="summary-label">Total Charged ▾</div>
+                        <div class="summary-value" id="ccTotalCharged">—</div>
+                    </div>
+                    <div class="summary-card summary-card-clickable" id="card-received" onclick="setSummaryMode('received')" style="border-left: 3px solid #3d9970;">
+                        <div class="summary-label">Total Received ▾</div>
+                        <div class="summary-value" id="ccTotalReceived" style="color:#3d9970;">—</div>
+                    </div>
                     <div class="summary-card"><div class="summary-label">Transactions</div><div class="summary-value" id="ccTotalTxn">—</div></div>
                     <div class="summary-card"><div class="summary-label">Monthly Avg</div><div class="summary-value" id="ccMonthlyAvg">—</div></div>
                 </div>
                 <div class="analytics-tables">
-                    <div class="box cc-month-box">
-                        <div class="box-title">Monthly Expenses</div>
-                        <div class="box-body" id="ccMonthlyBody"></div>
+                    <!-- Left column: Monthly Info + Recent Transactions -->
+                    <div class="analytics-left-col">
+                        <div class="box">
+                            <div class="box-title">Monthly Info</div>
+                            <div class="box-body" id="ccMonthlyBody"></div>
+                        </div>
+                        <div class="box" id="recentTxnsBox">
+                            <div class="box-title" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Recent Transactions</span>
+                                <span id="recentTxnsCount" style="font-size:11px; color:#aaa; font-weight:400;"></span>
+                            </div>
+                            <div id="recentTxnsBody" style="padding:0;"></div>
+                        </div>
                     </div>
+                    <!-- Right column: Expense Category charts -->
                     <div class="cat-boxes-col">
                         <div class="box">
-                            <div class="box-title">Expense Categories — <span id="ccMonthCatTitle">Month</span></div>
+                            <div class="box-title" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Expense Categories — <span id="ccMonthCatTitle">Month</span></span>
+                                <select class="cat-sort-select" onchange="setCatSort(this.value)"
+                                    style="font-size:11px; border:1px solid #bbb; padding:2px 6px; background:#f7f7f7; cursor:pointer; font-family:Arial,sans-serif;">
+                                    <option value="amount">$ Largest First</option>
+                                    <option value="alpha">A → Z</option>
+                                </select>
+                            </div>
                             <div class="box-body" id="ccMonthCategoryBody">
                                 <p class="sub-empty" style="padding:8px 0;">← Click a month to see its breakdown</p>
                             </div>
                         </div>
                         <div class="box">
-                            <div class="box-title">Expense Categories — Range</div>
+                            <div class="box-title" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Expense Categories — Range</span>
+                                <select class="cat-sort-select" onchange="setCatSort(this.value)"
+                                    style="font-size:11px; border:1px solid #bbb; padding:2px 6px; background:#f7f7f7; cursor:pointer; font-family:Arial,sans-serif;">
+                                    <option value="amount">$ Largest First</option>
+                                    <option value="alpha">A → Z</option>
+                                </select>
+                            </div>
                             <div class="box-body">
                                 <div class="cat-filter-row">
                                     <span class="filter-lbl">From</span>
@@ -210,14 +278,36 @@
                 </div>
             </div>
 
+            <!-- Account Transfer Flow Triangle (shown when transfers detected) -->
+            <div class="box" id="transferFlowBox" style="width:100%; margin-top:0; display:none;">
+                <div class="box-title">Account Transfer Flow</div>
+                <div class="box-body" id="transferFlowBody" style="flex-direction:column; padding:0;"></div>
+            </div>
+
             <div class="box" style="width:100%; margin-top: 12px;" id="csvPreviewBox">
-                <div class="box-title">Raw CSV Contents</div>
-                <div style="overflow-x: auto; padding: 10px;">
+                <div class="box-title" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleRawData()">
+                    <span>Raw Transaction Data</span>
+                    <div style="display:flex; align-items:center; gap:10px;" onclick="event.stopPropagation()">
+                        <select id="rawSortSelect" onchange="setRawSort(this.value)"
+                            style="font-size:12px; border:1px solid #bbb; padding:3px 8px; background:#fff; cursor:pointer; font-family:Arial,sans-serif; display:none;">
+                            <option value="date">📅 Newest → Oldest</option>
+                            <option value="alpha">🔤 A → Z (grouped)</option>
+                        </select>
+                        <button class="cat-expand-btn" id="rawDataToggleBtn" style="font-size:13px; width:auto; color:#555;">▶ Show</button>
+                    </div>
+                </div>
+                <div id="rawDataContent" style="display:none; overflow-x: auto; padding: 10px;">
+                    <div style="margin-bottom:8px;">
+                        <input type="text" id="txnSearchInput" placeholder="Search transactions…"
+                            oninput="renderUnifiedRawTable()"
+                            style="width:100%; max-width:420px; font-size:13px; border:1px solid #bbb; padding:5px 10px; font-family:Arial,sans-serif; box-sizing:border-box;">
+                        <span id="txnSearchCount" style="margin-left:10px; font-size:12px; color:#aaa;"></span>
+                    </div>
                     <table id="csvTable" class="csv-table">
                         <thead id="csvHead"></thead>
                         <tbody id="csvBody"></tbody>
                     </table>
-                    <p id="csvEmpty" style="color:#999; font-size:13px;">No file loaded yet.</p>
+                    <p id="csvEmpty" style="color:#999; font-size:13px;">No data loaded yet.</p>
                 </div>
             </div>
         </div>
@@ -229,6 +319,12 @@
             <div class="box">
                 <div class="box-title">Subscription List — Monthly Total: $<span id="subListTotal">0</span></div>
                 <div class="box-body" id="subListDisplay"></div>
+            </div>
+            <div class="box" style="margin-top:12px;">
+                <div class="box-title">Auto-Detected Recurring Charges</div>
+                <div class="box-body" id="detectedSubsList">
+                    <p class="sub-empty">Load transaction data to detect subscriptions.</p>
+                </div>
             </div>
         </div>
     </div>
@@ -251,11 +347,65 @@
                     <div class="box-row"><label>RSU</label>             <span class="money-wrap">$<input class="val-input" type="number" id="rsu"        value="20000"  oninput="calculate()"></span></div>
                     <div class="box-row"><label>Bonus % of Base</label> <span class="pct-wrap"><input class="pct-input" type="number" id="bonusPct" value="8" step="0.1" oninput="calculate()">%</span></div>
 
-                    <div class="edit-divider">Tax Rates</div>
-                    <div class="box-row"><label>Federal Tax</label>     <span class="pct-wrap"><input class="pct-input" type="number" id="taxFed"   value="22"   step="0.1" oninput="calculate()">%</span></div>
-                    <div class="box-row"><label>State Tax</label>       <span class="pct-wrap"><input class="pct-input" type="number" id="taxState" value="5"    step="0.1" oninput="calculate()">%</span></div>
-                    <div class="box-row"><label>Social Security</label> <span class="pct-wrap"><input class="pct-input" type="number" id="taxSS"    value="6.2"  step="0.1" oninput="calculate()">%</span></div>
-                    <div class="box-row"><label>Medicare</label>        <span class="pct-wrap"><input class="pct-input" type="number" id="taxMed"   value="1.45" step="0.1" oninput="calculate()">%</span></div>
+                    <div class="edit-divider">RSU Vest Months</div>
+                    <div style="font-size:12px; color:#888; margin-bottom:6px;">Check the months when RSU shares vest — the monthly view shows RSU income only in those months.</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:6px 16px;">
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="1"  onchange="calculate()"> Jan</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="2"  onchange="calculate()" checked> Feb</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="3"  onchange="calculate()"> Mar</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="4"  onchange="calculate()"> Apr</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="5"  onchange="calculate()" checked> May</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="6"  onchange="calculate()"> Jun</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="7"  onchange="calculate()"> Jul</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="8"  onchange="calculate()" checked> Aug</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="9"  onchange="calculate()"> Sep</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="10" onchange="calculate()"> Oct</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="11" onchange="calculate()" checked> Nov</label>
+                        <label class="vest-chk-lbl"><input type="checkbox" class="vest-chk" value="12" onchange="calculate()"> Dec</label>
+                    </div>
+
+                    <div class="edit-divider">Tax Settings — 2025 Progressive Brackets</div>
+                    <div class="box-row">
+                        <label>Filing Status</label>
+                        <select id="filingStatus" onchange="calculate()" style="font-size:13px;border:1px solid #bbb;padding:3px 8px;font-family:Arial,sans-serif;background:#fff;">
+                            <option value="single">Single</option>
+                            <option value="mfj">Married Filing Jointly</option>
+                        </select>
+                    </div>
+                    <div class="tax-check-row">
+                        <input type="checkbox" id="chkFed" checked onchange="calculate()">
+                        <label for="chkFed">Federal Income Tax</label>
+                        <span class="tax-eff-rate" id="fedEffRate"></span>
+                        <span class="tax-detail">progressive brackets · $15,000 std deduction</span>
+                    </div>
+                    <div class="tax-check-row">
+                        <input type="checkbox" id="chkState" checked onchange="calculate()">
+                        <label for="chkState">California State Tax</label>
+                        <span class="tax-eff-rate" id="caEffRate"></span>
+                        <span class="tax-detail">progressive brackets · $5,363 std deduction</span>
+                    </div>
+                    <div class="tax-check-row">
+                        <input type="checkbox" id="chkSS" checked onchange="calculate()">
+                        <label for="chkSS">Social Security</label>
+                        <span class="tax-eff-rate" id="ssEffRate"></span>
+                        <span class="tax-detail">6.2% · up to $176,100 wage base</span>
+                    </div>
+                    <div class="tax-check-row">
+                        <input type="checkbox" id="chkMed" checked onchange="calculate()">
+                        <label for="chkMed">Medicare</label>
+                        <span class="tax-eff-rate" id="medEffRate"></span>
+                        <span class="tax-detail">1.45% + 0.9% on wages over $200k</span>
+                    </div>
+                    <div class="tax-check-row">
+                        <input type="checkbox" id="chkSDI" checked onchange="calculate()">
+                        <label for="chkSDI">CA SDI</label>
+                        <span class="tax-eff-rate" id="sdiEffRate"></span>
+                        <span class="tax-detail">1.1% · no wage cap (2025)</span>
+                    </div>
+                    <div class="box-row" style="margin-top:4px;">
+                        <label style="color:#888;font-size:12px;">Total effective rate</label>
+                        <span id="totalEffRate" style="font-size:12px;color:#555;font-weight:600;"></span>
+                    </div>
 
                     <div class="edit-divider">Tithing Rates</div>
                     <div class="box-row"><label>Church</label>      <span class="pct-wrap"><input class="pct-input" type="number" id="titheChurchPct" value="3.5" step="0.1" oninput="calculate()">%</span></div>
@@ -266,6 +416,7 @@
                     <div class="edit-divider">Monthly Expenses</div>
                     <div id="editExpenseList"></div>
                     <button class="add-btn" onclick="addExpense()">+ Add Expense</button>
+                    <div id="expenseSaveBtnArea" style="margin-top:8px;"></div>
 
                     <div class="edit-divider">Subscriptions</div>
                     <div id="editSubList"></div>
@@ -282,6 +433,7 @@
 
 </div>
 
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

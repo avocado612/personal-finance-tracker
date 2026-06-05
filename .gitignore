@@ -1,0 +1,6 @@
+.env
+.plaid_token
+.plaid_history.json
+.saved_csv.json
+.csv_data/
+node_modules/
