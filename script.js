@@ -194,11 +194,12 @@ function renderExpenseSaveBtn() {
 }
 
 function saveExpenseCategories() {
-    // Ensure every user-defined expense name has an entry in categoryKeywords
-    // so it appears in the classify dropdown and the keywords editor.
+    // Ensure every expense name has an entry in categoryKeywords so it appears in the
+    // classify dropdown and keywords editor. Built-in CC categories are included too —
+    // expense names and CC category names are the same unified concept.
     const builtIn = new Set(CC_CATEGORY_NAMES);
     expenses.forEach(e => {
-        if (e.name && !builtIn.has(e.name)) {
+        if (e.name) {
             if (!categoryKeywords[e.name]) categoryKeywords[e.name] = [];
         }
     });
@@ -771,31 +772,50 @@ function isDuplicate(tPlaid, csvGroup) {
 
 // ── Core merge ───────────────────────────────────────────────────────────────
 
+// After merging, rewrite t.month/t.mLabel on refunds so they appear in the
+// purchase month everywhere (category panels, charts, totals) — not the refund arrival month.
+function remapRefundMonths() {
+    const charges = ccTransactions.filter(t =>
+        !CC_EXCLUDE_FROM_SPEND.has(t.category) && t.amount < 0
+    );
+    ccTransactions.forEach(t => {
+        if (!isRefundTxn(t)) return;
+        const match = findMatchingCharge(t, charges);
+        if (match && match.month !== t.month) {
+            t.month  = match.month;
+            t.mLabel = match.mLabel;
+        }
+    });
+}
+
 function mergeTxnSources() {
-    // Build a lookup: "YYYY-MM-DD|cents" → [csvTxn, ...]
-    // cents = Math.round(amount * 100) so floating-point rounding doesn't matter
-    const csvIndex = new Map();
-    csvTransactions.forEach(t => {
-        const key = `${t.isoDate}|${Math.round(t.amount * 100)}`;
-        if (!csvIndex.has(key)) csvIndex.set(key, []);
-        csvIndex.get(key).push(t);
-    });
-
-    // Keep only Plaid transactions not already in the CSV
-    const uniquePlaid = plaidTransactions.filter(pt => {
-        const key     = `${pt.isoDate}|${Math.round(pt.amount * 100)}`;
-        const bucket  = csvIndex.get(key) || [];
-        return !isDuplicate(pt, bucket);
-    });
-
-    // plaidCoverStart = earliest date of a Plaid-unique transaction
-    plaidCoverStart = uniquePlaid.length
-        ? uniquePlaid.reduce((m, t) => (!m || t.isoDate < m ? t.isoDate : m), null)
+    // CSV data is now shown separately in the History (CSV Upload) tab.
+    // The Expenses tab uses Plaid live data only.
+    plaidCoverStart = plaidTransactions.length
+        ? plaidTransactions.reduce((m, t) => (!m || t.isoDate < m ? t.isoDate : m), null)
         : null;
 
-    // Merge CSV (full history) + deduplicated Plaid, sort newest-first
-    ccTransactions = [...csvTransactions, ...uniquePlaid]
+    ccTransactions = [...plaidTransactions]
         .sort((a, b) => b.isoDate.localeCompare(a.isoDate));
+
+    remapRefundMonths();
+}
+
+// Finds the original charge that a refund is canceling.
+// Matches on: exact amount, same account (if known), charge before refund, within 180 days.
+// Among candidates, prefers same category, then picks the most recent charge.
+function findMatchingCharge(refund, charges) {
+    const candidates = charges.filter(c => {
+        if (Math.abs(-c.amount - refund.amount) > 25) return false;
+        if (refund.accountName && c.accountName && refund.accountName !== c.accountName) return false;
+        if (!c.isoDate || !refund.isoDate || c.isoDate >= refund.isoDate) return false;
+        const daysDiff = (new Date(refund.isoDate) - new Date(c.isoDate)) / 86400000;
+        return daysDiff <= 180;
+    });
+    if (!candidates.length) return null;
+    const sameCat = candidates.filter(c => c.category === refund.category);
+    const pool = sameCat.length ? sameCat : candidates;
+    return pool.sort((a, b) => b.isoDate.localeCompare(a.isoDate))[0];
 }
 
 // Computes summary numbers from a transaction array.
@@ -822,7 +842,7 @@ function computeSummary(txns) {
         months[t.month].total -= t.amount;
         months[t.month].count++;
     });
-    // Refunds reduce monthly spending totals (t.amount > 0 so -t.amount is negative)
+    // Refunds reduce monthly spending totals (t.month already remapped to purchase month by remapRefundMonths)
     refunds.forEach(t => {
         if (!months[t.month]) months[t.month] = { label: t.mLabel, total: 0, count: 0, received: 0 };
         months[t.month].total -= t.amount;
@@ -1137,6 +1157,128 @@ function orderTxnsWithRefunds(txns) {
     return out;
 }
 
+/* ══════════════════════════════════════════
+   Similar Transactions Sidebar
+══════════════════════════════════════════ */
+const KEYWORD_NOISE = new Set([
+    'CHARGE','PURCHASE','PAYMENT','ONLINE','INC','LLC','COM','NET','ORG','WWW',
+    'HTTP','HTTPS','THE','AND','FOR','FROM','SVC','SERVICE','SERVICES','INTL',
+    'INTERNATIONAL','ACH','PMT','TST','SP','SQ','BILL','BILLING','AUTO','PAY',
+    'AUTOPAY','DEBIT','CREDIT','TRANSFER','BANK','POS','PIN','VISA','CARD',
+    'BUS','TICKET','TICKETS','MKTPL','MKTP','DIGITAL','MOBILE','APP','APPS',
+]);
+
+function extractKeywords(desc) {
+    const tokens = desc.toUpperCase().split(/[\s\.\*\-\/\,\&\+\(\)\[\]\_\#\@\!\?]+/);
+    const seen = new Set();
+    return tokens.filter(token => {
+        if (!token || token.length < 3) return false;
+        if (/\d/.test(token)) return false;          // any digit = reference/code, not a keyword
+        if (KEYWORD_NOISE.has(token)) return false;
+        if (seen.has(token)) return false;
+        seen.add(token);
+        return true;
+    });
+}
+
+let _similarKeywords   = [];
+let _similarAllMatches = [];
+
+function _renderSimilarRows(list) {
+    document.getElementById('txnSimilarBody').innerHTML = list.length === 0
+        ? '<p style="color:#aaa; padding:16px; font-size:13px;">No matching transactions found.</p>'
+        : list.map(t => {
+            const isCharge = t.amount < 0;
+            const amtStr   = isCharge ? `-$${fmt(-t.amount, 2)}` : `+$${fmt(t.amount, 2)}`;
+            const amtColor = isCharge ? '#c0392b' : '#27ae60';
+            const d = t.isoDate || t.date || '';
+            const dateStr = d.length >= 10 ? `${d.slice(5,7)}/${d.slice(8,10)}/${d.slice(2,4)}` : d;
+            const acctColor = t.accountName ? getAccountColor(t.accountName) : '#aaa';
+            const acctBadge = t.accountName
+                ? `<span style="background:${acctColor};color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap;">${t.accountName.split(' ').map(w=>w[0]).join('').slice(0,3).toUpperCase()}</span>`
+                : '';
+            const catLabel = t.category
+                ? `<span style="font-size:10px;color:#aaa;">${t.category}</span>`
+                : '';
+            return `<div class="txn-similar-row">
+                <span class="txn-similar-row-date">${dateStr}</span>
+                <span>${acctBadge}</span>
+                <span class="txn-similar-row-desc" title="${(t.desc||'').replace(/"/g,'&quot;')}">
+                    ${t.desc || '—'}<br>${catLabel}
+                </span>
+                <span class="txn-similar-row-amt" style="color:${amtColor}">${amtStr}</span>
+            </div>`;
+        }).join('');
+}
+
+function _updateSimilarCount(list) {
+    const totalSpent    = list.filter(t => t.amount < 0).reduce((s, t) => s - t.amount, 0);
+    const totalReceived = list.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+    const parts = [];
+    if (totalSpent    > 0) parts.push(`$${fmt(totalSpent, 2)} spent`);
+    if (totalReceived > 0) parts.push(`$${fmt(totalReceived, 2)} received`);
+    document.getElementById('txnSimilarCount').textContent =
+        `${list.length} transaction${list.length !== 1 ? 's' : ''}` +
+        (parts.length ? ' · ' + parts.join(' · ') : '');
+}
+
+function filterSimilarByKw(filter, el) {
+    document.querySelectorAll('.sim-kw-chip').forEach(c => c.classList.remove('sim-kw-active'));
+    el.classList.add('sim-kw-active');
+
+    let filtered;
+    if (filter === 'all') {
+        filtered = _similarAllMatches;
+    } else if (filter === 'phrase') {
+        const phrase = _similarKeywords.join(' ');
+        filtered = _similarAllMatches.filter(t => (t.desc || '').toUpperCase().includes(phrase));
+    } else {
+        const kw = _similarKeywords[filter];
+        filtered = _similarAllMatches.filter(t => (t.desc || '').toUpperCase().includes(kw));
+    }
+
+    _updateSimilarCount(filtered);
+    _renderSimilarRows(filtered);
+}
+
+function openSimilarTxns(desc) {
+    const keywords = extractKeywords(desc);
+    if (!keywords.length) return;
+    _similarKeywords = keywords;
+
+    // Search Plaid + CSV, deduplicated
+    const seen = new Set();
+    const all  = [...ccTransactions, ...csvTransactions];
+    _similarAllMatches = all.filter(t => {
+        const key = `${t.isoDate}|${Math.round((t.amount || 0) * 100)}|${(t.desc || '').slice(0, 30)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        const d = (t.desc || '').toUpperCase();
+        return keywords.some(kw => d.includes(kw));
+    }).sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''));
+
+    // Keyword filter chips
+    const allChip    = `<button class="sim-kw-chip sim-kw-active" onclick="filterSimilarByKw('all',this)">ALL</button>`;
+    const kwChips    = keywords.map((kw, i) =>
+        `<button class="sim-kw-chip" onclick="filterSimilarByKw(${i},this)">${kw}</button>`
+    ).join('');
+    const phraseChip = keywords.length > 1
+        ? `<button class="sim-kw-chip sim-kw-phrase" onclick="filterSimilarByKw('phrase',this)">${keywords.join(' ')}</button>`
+        : '';
+    document.getElementById('txnSimilarKeywords').innerHTML = allChip + kwChips + phraseChip;
+
+    _updateSimilarCount(_similarAllMatches);
+    _renderSimilarRows(_similarAllMatches);
+
+    document.getElementById('txnSimilarSidebar').classList.add('open');
+    document.getElementById('txnSimilarOverlay').classList.add('open');
+}
+
+function closeSimilarTxns() {
+    document.getElementById('txnSimilarSidebar').classList.remove('open');
+    document.getElementById('txnSimilarOverlay').classList.remove('open');
+}
+
 function renderTxnRow(t, catName, classifyOpts) {
     const dateLabel = t.isoDate
         ? t.isoDate.slice(5,7) + '/' + t.isoDate.slice(8,10) + '/' + t.isoDate.slice(2,4)
@@ -1162,11 +1304,12 @@ function renderTxnRow(t, catName, classifyOpts) {
         ? `<span class="acct-txn-badge" style="background:${acctColor};" title="${t.accountName}">${t.accountName.split(' ').map(w=>w[0]).join('').slice(0,3).toUpperCase()}</span>`
         : (t.source === 'plaid' ? '<span class="plaid-badge">🔵</span>' : '');
     const sourceBadge = acctBadge;
+    const similarBtn = `<button class="cat-similar-btn" onclick="event.stopPropagation();openSimilarTxns(this.dataset.desc)" data-desc="${safeDesc}" title="Find similar transactions">≡</button>`;
     return `<div class="cat-detail-row${sourceClass}" data-mkey="${mkey}" data-desc="${safeDesc}" onclick="highlightMerchant(this.dataset.mkey)">
         <span class="cat-detail-date">${dateLabel}</span>
         <div class="cat-desc-group">
             ${sourceBadge}<span class="cat-detail-desc" title="${t.desc}">${t.desc}</span>
-            ${classify}
+            ${classify}${similarBtn}
         </div>
         <span class="${amtClass}">${amtLabel}</span>
     </div>`;
@@ -1213,7 +1356,7 @@ function buildStackedBar(txns, totalAmt, axisMax, catName) {
     </div>`;
 }
 
-function buildCatChart(charges, chartId) {
+function buildCatChart(charges, chartId, sortOverride) {
     const total   = charges.reduce((s, t) => s - t.amount, 0);
     const cats    = {};
     const catTxns = {};
@@ -1222,7 +1365,8 @@ function buildCatChart(charges, chartId) {
         catTxns[t.category] = catTxns[t.category]  || [];
         catTxns[t.category].push(t);
     });
-    const sorted  = _catSortMode === 'alpha'
+    const effectiveSort = sortOverride || _catSortMode;
+    const sorted  = effectiveSort === 'alpha'
         ? Object.entries(cats).sort(([a], [b]) => a.localeCompare(b))
         : Object.entries(cats).sort(([,a], [,b]) => b - a);
     const maxAmt  = Math.max(...sorted.map(([,a]) => a), 1);
@@ -1446,6 +1590,7 @@ function reCategorizeAll() {
     restoreOpenDetails('ccCategoryBody', openR);
     renderUnifiedRawTable();
     renderRecentTransactions();
+    renderCsvHistory();
 }
 
 /* ══════════════════════════════════════════
@@ -1538,6 +1683,21 @@ function loadFromStorage() {
         if (saved && saved.length > 0) {
             expenses = saved;
             expId = expenses.reduce((m, e) => Math.max(m, e.id), 0);
+
+            // Migration: normalize expense names that should match built-in CC categories
+            const NAME_MIGRATIONS = { 'Dine-out': 'Dining Out', 'dine-out': 'Dining Out', 'Dine Out': 'Dining Out' };
+            let migrated = false;
+            expenses.forEach(e => {
+                if (NAME_MIGRATIONS[e.name]) {
+                    e.name = NAME_MIGRATIONS[e.name];
+                    migrated = true;
+                }
+            });
+            if (migrated) {
+                // Clean up stale keyword entries left behind by the old names
+                Object.keys(NAME_MIGRATIONS).forEach(old => { delete categoryKeywords[old]; });
+            }
+
             renderExpenses();
         } else { initExpenses(); }
     } catch(e) { initExpenses(); }
@@ -1726,8 +1886,7 @@ function loadCSV(input) {
         const newTxns = parseCSVRows(rows, label);
         csvTransactions = csvTransactions.concat(newTxns);
         csvTransactions.sort((a, b) => b.isoDate.localeCompare(a.isoDate));
-        mergeTxnSources();
-        rebuildCCAnalyticsUI();
+        renderCsvHistory();
 
         // Record file metadata (replace existing entry for this account if re-uploaded)
         csvUploadMeta = csvUploadMeta.filter(m => m.accountName !== label);
@@ -1785,19 +1944,12 @@ function renderCSVTable(rows) {
 function clearCSV() {
     if (!confirm('Remove all uploaded CSV accounts?')) return;
     csvTransactions = [];
-    mergeTxnSources();
+    csvUploadMeta  = [];
     document.getElementById('csvFileInput').value = '';
     document.getElementById('csvAccountLabel').value = '';
     document.getElementById('csvStatus').textContent = '';
-    document.getElementById('csvHead').innerHTML = '';
-    document.getElementById('csvBody').innerHTML = '';
-    document.getElementById('csvTable').style.display = 'none';
-    document.getElementById('csvEmpty').style.display = '';
-    document.getElementById('ccAnalytics').style.display = 'none';
-    if (ccSelectedMonthEl) { ccSelectedMonthEl.classList.remove('month-row-active'); ccSelectedMonthEl = null; }
-    ccTransactions = [];
-    csvUploadMeta  = [];
     updateLoadedAccountsList();
+    renderCsvHistory();
 }
 
 /* ══════════════════════════════════════════
@@ -1994,14 +2146,8 @@ function updateLoadedAccountsList() {
 function deleteCsvAccount(name) {
     csvTransactions = csvTransactions.filter(t => t.accountName !== name);
     csvUploadMeta   = csvUploadMeta.filter(m => m.accountName !== name);
-    mergeTxnSources();
-    if (ccTransactions.length > 0) {
-        rebuildCCAnalyticsUI();
-    } else {
-        const el = document.getElementById('ccAnalytics');
-        if (el) el.style.display = 'none';
-    }
     updateLoadedAccountsList();
+    renderCsvHistory();
 }
 
 // Save current csvTransactions + metadata to localStorage for fast restore on next page load
@@ -2010,6 +2156,157 @@ function saveCsvTransactionsLocal() {
         localStorage.setItem('fc_csvTxns',  JSON.stringify(csvTransactions));
         localStorage.setItem('fc_csvMeta',  JSON.stringify(csvUploadMeta));
     } catch(e) {}
+}
+
+/* ══════════════════════════════════════════
+   History (CSV Upload) tab rendering
+══════════════════════════════════════════ */
+let _csvHistCatSort = 'amount';
+
+function setCsvHistCatSort(val) {
+    _csvHistCatSort = val;
+    csvHistApplyCatFilter();
+}
+
+function csvHistApplyCatFilter() {
+    const from = document.getElementById('csvHistDateFrom')?.value;
+    const to   = document.getElementById('csvHistDateTo')?.value;
+    const filtered = csvTransactions.filter(t =>
+        !CC_EXCLUDE_FROM_SPEND.has(t.category) &&
+        (!from || t.isoDate >= from) &&
+        (!to   || t.isoDate <= to)
+    );
+    const el = document.getElementById('csvHistCategoryBody');
+    if (el) el.innerHTML = buildCatChart(filtered, 'h', _csvHistCatSort);
+}
+
+function renderCsvMonthlyTable(sortedMonths, totalCharged) {
+    const totalRcvd = sortedMonths.reduce((s, [, m]) => s + (m.received || 0), 0);
+    const rows = sortedMonths.map(([key, m]) => {
+        const rcvd = m.received || 0;
+        const spentDisplay = m.total >= 0
+            ? `<span style="color:#c0392b;">$${fmt(m.total, 2)}</span>`
+            : `<span style="color:#3d9970;" title="Net refunds">+$${fmt(-m.total, 2)}</span>`;
+        return `<tr class="month-row" style="cursor:default;">
+            <td>${key.slice(5,7)}/${key.slice(0,4)}</td>
+            <td class="col-amt">${spentDisplay}</td>
+            <td class="col-amt" style="color:#3d9970;">${rcvd > 0 ? '$' + fmt(rcvd, 2) : '—'}</td>
+            <td class="col-pct">${m.count}</td>
+        </tr>`;
+    }).join('');
+    return `<table class="analytics-table">
+        <thead><tr>
+            <th>Month</th>
+            <th class="col-amt" style="color:#c0392b;">Spent</th>
+            <th class="col-amt" style="color:#3d9970;">Received</th>
+            <th class="col-pct">#</th>
+        </tr></thead>
+        <tbody>
+            ${rows}
+            <tr class="grand-total">
+                <td>Total</td>
+                <td class="col-amt" style="color:#c0392b;">$${fmt(totalCharged, 2)}</td>
+                <td class="col-amt" style="color:#3d9970;">$${fmt(totalRcvd, 2)}</td>
+                <td></td>
+            </tr>
+        </tbody>
+    </table>`;
+}
+
+function renderCsvHistory() {
+    const analyticsEl = document.getElementById('csvHistAnalytics');
+    const rawBoxEl    = document.getElementById('histCsvPreviewBox');
+    if (!analyticsEl) return;
+
+    if (!csvTransactions || csvTransactions.length === 0) {
+        analyticsEl.style.display = 'none';
+        if (rawBoxEl) rawBoxEl.style.display = 'none';
+        return;
+    }
+
+    const { charges, allNonEx, totalCharged, totalReceived, sortedMonths, monthlyAvg } = computeSummary(csvTransactions);
+
+    const setH = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    setH('csvHistCharged',  '$' + fmt(totalCharged,  2));
+    setH('csvHistReceived', '$' + fmt(totalReceived, 2));
+    setH('csvHistTxns',     csvTransactions.length + ' txns');
+    setH('csvHistAvg',      '$' + fmt(monthlyAvg,    2));
+
+    const monthBody = document.getElementById('csvHistMonthlyBody');
+    if (monthBody) monthBody.innerHTML = renderCsvMonthlyTable(sortedMonths, totalCharged);
+
+    // Set date range defaults for category chart
+    const fromEl = document.getElementById('csvHistDateFrom');
+    const toEl   = document.getElementById('csvHistDateTo');
+    if (fromEl && !fromEl.value) {
+        const allDates = csvTransactions.map(t => t.isoDate).filter(Boolean).sort();
+        if (allDates.length) {
+            fromEl.value = allDates[0];
+            toEl.value   = allDates[allDates.length - 1];
+        }
+    }
+
+    csvHistApplyCatFilter();
+    renderCsvHistRawTable();
+
+    analyticsEl.style.display = '';
+    if (rawBoxEl) rawBoxEl.style.display = '';
+}
+
+function renderCsvHistRawTable() {
+    const head  = document.getElementById('histCsvHead');
+    const body  = document.getElementById('histCsvBody');
+    const table = document.getElementById('histCsvTable');
+    const empty = document.getElementById('histCsvEmpty');
+    if (!head || !body) return;
+
+    if (!csvTransactions.length) {
+        if (table) table.style.display = 'none';
+        if (empty) empty.style.display = '';
+        return;
+    }
+
+    const searchQ = (document.getElementById('histCsvSearchInput')?.value || '').trim().toLowerCase();
+    let txns = searchQ
+        ? csvTransactions.filter(t =>
+            (t.desc || '').toLowerCase().includes(searchQ) ||
+            (t.category || '').toLowerCase().includes(searchQ) ||
+            (t.accountName || '').toLowerCase().includes(searchQ) ||
+            (t.isoDate || '').includes(searchQ))
+        : [...csvTransactions];
+
+    const countEl = document.getElementById('histCsvSearchCount');
+    if (countEl) countEl.textContent = searchQ ? `${txns.length} of ${csvTransactions.length} transactions` : '';
+
+    head.innerHTML = `<tr>
+        <th>Date</th><th>Description</th><th>Amount</th><th>Category</th><th>Account</th>
+    </tr>`;
+    body.innerHTML = txns.map((t, i) => {
+        const isPos  = t.amount > 0;
+        const amtStr = isPos
+            ? `<span style="color:#27ae60;">+$${fmt(t.amount, 2)}</span>`
+            : `$${fmt(-t.amount, 2)}`;
+        return `<tr class="${i % 2 === 0 ? 'csv-even' : 'csv-odd'}">
+            <td>${t.isoDate || t.date || ''}</td>
+            <td>${t.desc || ''}</td>
+            <td style="white-space:nowrap;">${amtStr}</td>
+            <td>${t.category || ''}</td>
+            <td>${t.accountName || ''}</td>
+        </tr>`;
+    }).join('');
+
+    if (table) table.style.display = 'table';
+    if (empty) empty.style.display = 'none';
+}
+
+function toggleHistCsvRaw() {
+    const content = document.getElementById('histCsvRawContent');
+    const btn     = document.getElementById('histCsvRawToggleBtn');
+    if (!content) return;
+    const isHidden = content.style.display === 'none';
+    content.style.display = isHidden ? '' : 'none';
+    if (btn) btn.textContent = isHidden ? '▼ Hide' : '▶ Show';
+    if (isHidden) renderCsvHistRawTable();
 }
 
 async function saveCsvToServer(rows, accountName) {
@@ -2049,12 +2346,7 @@ async function loadCsvFromServer() {
 
         // Sort newest-first
         csvTransactions.sort((a, b) => b.isoDate.localeCompare(a.isoDate));
-        mergeTxnSources();
-
-        // Rebuild the full CC UI if analytics section is visible
-        rebuildCCAnalyticsUI();
-
-        // Populate localStorage for fast next-load (store parsed transactions)
+        renderCsvHistory();
         saveCsvTransactionsLocal();
 
         const totalRows = data.accounts.reduce((s, a) => s + (a.rows.length - 1), 0);
@@ -2070,7 +2362,9 @@ async function loadCsvFromServer() {
 // Use HTTPS when served over HTTPS (production), HTTP for sandbox file:// access
 const PLAID_SERVER = window.location.protocol === 'https:' ? 'https://localhost:3001' : 'http://localhost:3001';
 
-let _plaidLinked = false;
+let _plaidLinked        = false;
+let _plaidAccounts      = [];   // cached from last showPlaidAccounts call
+let _plaidAllByAccount  = {};   // unfiltered txns per account name, from /api/all-transactions
 
 async function plaidCheckStatus() {
     try {
@@ -2164,13 +2458,13 @@ function showPlaidAccounts(accounts, institution) {
     if (!box || !list) return;
     if (!accounts || accounts.length === 0) { box.style.display = 'none'; return; }
     box.style.display = '';
+    _plaidAccounts = accounts;
 
-    // Institution header (e.g. "Wells Fargo")
     const instEl = document.getElementById('plaidInstitutionName');
     if (instEl) instEl.textContent = institution || 'Live Accounts';
 
     const TYPE_ICON = { credit: '💳', checking: '🏦', savings: '🏦', depository: '🏦' };
-    list.innerHTML = accounts.map(a => {
+    list.innerHTML = accounts.map((a, idx) => {
         const color    = getAccountColor(a.name);
         const icon     = TYPE_ICON[a.subtype] || TYPE_ICON[a.type] || '🏦';
         const sub      = a.subtype || a.type || '';
@@ -2178,15 +2472,85 @@ function showPlaidAccounts(accounts, institution) {
         const balStr   = a.balance != null ? `$${fmt(a.balance, 2)}` : '';
         const availStr = (a.available != null && a.available !== a.balance)
             ? ` <span style="color:#888;">(avail $${fmt(a.available,2)})</span>` : '';
-        return `<div class="acct-badge" style="border-left: 4px solid ${color}; display:flex; align-items:center; gap:8px; justify-content:space-between;">
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span style="font-size:15px;">${icon}</span>
-                <strong style="font-size:13px;">${a.name || '—'}</strong>
-                <span style="color:#aaa; font-size:11px;">${sub ? `(${sub})` : ''} ${maskStr}</span>
-            </span>
-            <span style="font-size:12px; font-weight:600; color:#1a3a6e; white-space:nowrap;">${balStr}${availStr}</span>
+        return `<div>
+            <div class="acct-badge" style="border-left: 4px solid ${color}; cursor:pointer;"
+                 onclick="toggleAcctPanel(${idx})">
+                <span style="display:flex; align-items:center; gap:6px; flex:1; min-width:0;">
+                    <span style="font-size:15px;">${icon}</span>
+                    <strong style="font-size:13px;">${a.name || '—'}</strong>
+                    <span style="color:#aaa; font-size:11px;">${sub ? `(${sub})` : ''} ${maskStr}</span>
+                </span>
+                <span style="font-size:12px; font-weight:600; color:#1a3a6e; white-space:nowrap;">${balStr}${availStr}</span>
+                <span id="acct-arrow-${idx}" style="font-size:9px; color:#aaa; margin-left:4px; flex-shrink:0;">▶</span>
+            </div>
+            <div id="acct-panel-${idx}" class="acct-txn-panel" style="display:none;"></div>
         </div>`;
     }).join('');
+}
+
+function toggleAcctPanel(idx) {
+    const panel = document.getElementById(`acct-panel-${idx}`);
+    const arrow = document.getElementById(`acct-arrow-${idx}`);
+    if (!panel) return;
+
+    if (panel.style.display !== 'none') {
+        panel.style.display = 'none';
+        if (arrow) arrow.textContent = '▶';
+        return;
+    }
+
+    const a = _plaidAccounts[idx];
+    if (!a) return;
+
+    // Use unfiltered all-transactions if available; fall back to spending-only plaidTransactions
+    const raw = (_plaidAllByAccount[a.name] || []);
+    const txns = raw.length > 0
+        ? raw  // already sorted newest-first by server
+        : plaidTransactions
+            .filter(t => t.accountName === a.name)
+            .sort((x, y) => (y.isoDate || y.date || '').localeCompare(x.isoDate || x.date || ''));
+
+    if (txns.length === 0) {
+        panel.innerHTML = '<div style="padding:5px 12px; color:#aaa; font-size:12px; font-style:italic;">No transactions loaded for this account.</div>';
+        panel.style.display = '';
+        if (arrow) arrow.textContent = '▼';
+        return;
+    }
+
+    // Build rows with running balance (start from current balance, work backwards in time)
+    // credit card: balance_before = balance_after + our_amount  (charge is negative, reduces owed)
+    // depository:  balance_before = balance_after - our_amount  (charge is negative, increases prior balance)
+    const isCredit = a.type === 'credit';
+    let runBal = a.balance;
+
+    const rows = txns.map(t => {
+        const balAfter = runBal;
+        if (runBal != null) {
+            runBal = isCredit ? runBal + t.amount : runBal - t.amount;
+        }
+
+        const d = t.isoDate || t.date || '';
+        const dateStr = d.length >= 10
+            ? `${d.slice(5,7)}/${d.slice(8,10)}/${d.slice(2,4)}`
+            : d;
+        const isCharge = t.amount < 0;
+        const amtStr   = isCharge ? `-$${fmt(-t.amount, 2)}` : `+$${fmt(t.amount, 2)}`;
+        const amtColor = isCharge ? '#c00' : '#2a7a2a';
+        const balStr   = balAfter != null ? `$${fmt(balAfter, 2)}` : '—';
+        const desc     = t.desc || t.description || '—';
+
+        return `<div class="acct-txn-row">
+            <span class="acct-txn-date">${dateStr}</span>
+            <span class="acct-txn-desc" title="${desc.replace(/"/g,'&quot;')}">${desc}</span>
+            <span class="acct-txn-amt" style="color:${amtColor}">${amtStr}</span>
+            <span class="acct-txn-bal">${balStr}</span>
+        </div>`;
+    }).join('');
+
+    panel.innerHTML = `
+        ${rows}`;
+    panel.style.display = '';
+    if (arrow) arrow.textContent = '▼';
 }
 
 async function plaidSync() {
@@ -2257,6 +2621,13 @@ async function plaidSync() {
             if (acctData.accounts && acctData.accounts.length > 0) {
                 showPlaidAccounts(acctData.accounts, acctData.institution);
             }
+        } catch (_) {}
+
+        // Fetch ALL transactions per account (unfiltered — for the per-account dropdown)
+        try {
+            const allRes  = await fetch(`${PLAID_SERVER}/api/all-transactions`);
+            const allData = await allRes.json();
+            if (allData.byAccount) _plaidAllByAccount = allData.byAccount;
         } catch (_) {}
 
         const csvEndStr = csvTransactions.length

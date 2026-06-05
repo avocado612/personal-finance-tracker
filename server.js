@@ -240,6 +240,41 @@ app.post('/api/unlink', (req, res) => {
     res.json({ ok: true });
 });
 
+// ── All transactions per account (unfiltered — for the per-account dropdown) ─
+app.get('/api/all-transactions', async (req, res) => {
+    const access_token = loadAccessToken();
+    if (!access_token) return res.json({ byAccount: {} });
+    try {
+        const accountsResp = await plaidClient.accountsGet({ access_token });
+        const acctMap = new Map(accountsResp.data.accounts.map(a => [a.account_id, a]));
+
+        const history = loadPlaidHistory();
+        const byAccount = {};
+
+        Object.values(history.transactions || {}).forEach(t => {
+            const acct = acctMap.get(t.account_id);
+            if (!acct) return;
+            const name = acct.name;
+            if (!byAccount[name]) byAccount[name] = [];
+            byAccount[name].push({
+                isoDate: t.date,
+                desc:    t.name,
+                amount:  -t.amount,   // flip to internal convention: negative=out, positive=in
+            });
+        });
+
+        // Sort each account newest-first
+        Object.values(byAccount).forEach(arr =>
+            arr.sort((a, b) => b.isoDate.localeCompare(a.isoDate))
+        );
+
+        res.json({ byAccount });
+    } catch (err) {
+        console.error('all-transactions error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── CSV persistence (per account) ────────────────────────────────────────────
 app.post('/api/save-csv', (req, res) => {
     try {

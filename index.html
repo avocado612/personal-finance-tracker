@@ -15,6 +15,7 @@
     <div class="tab active" onclick="showTab('monthly-ideal',   this)">Monthly Ideal</div>
     <div class="tab"        onclick="showTab('monthly-real',    this)">Monthly Real</div>
     <div class="tab"        onclick="showTab('credit-card',     this)">Expenses</div>
+    <div class="tab"        onclick="showTab('history-csv',     this)">History (CSV upload)</div>
     <div class="tab"        onclick="showTab('subscription',    this)">Subscription_List</div>
     <div class="tab"        onclick="showTab('monthly-records', this)">Monthly Records</div>
     <div class="tab"        onclick="showTab('edit',            this)">Edit</div>
@@ -169,46 +170,23 @@
     <!-- ── Credit-Card Expenses ── -->
     <div class="sheet" id="credit-card">
         <div class="sheet-body" style="flex-direction: column;">
-            <!-- Top row: Live Bank Sync (left) + CSV Upload (right) -->
-            <div style="display:flex; gap:12px; width:100%; align-items:flex-start;">
-
-                <!-- Live Bank Sync box -->
-                <div class="box" style="flex:1; min-width:0;">
-                    <div class="box-title">Live Bank Sync</div>
-                    <div class="box-body" style="flex-direction:column; gap:10px;">
-                        <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
-                            <button class="add-btn" id="plaidToggleBtn" onclick="plaidToggle()" style="font-weight:bold; min-width:140px;">Connect Bank</button>
-                            <span id="plaidStatus" style="font-size:13px; color:#666;"></span>
+            <!-- Live Bank Sync box -->
+            <div class="box" style="width:100%;">
+                <div class="box-title">Live Bank Sync</div>
+                <div class="box-body" style="flex-direction:column; gap:6px;">
+                    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                        <button class="add-btn" id="plaidToggleBtn" onclick="plaidToggle()" style="font-weight:bold; min-width:140px; margin-top:0;">Connect Bank</button>
+                        <span id="plaidStatus" style="font-size:13px; color:#666;"></span>
+                        <span id="plaidLastSyncRow" style="display:none; font-size:11px; color:#aaa; margin-left:auto;">Last synced: <span id="plaidLastSync"></span></span>
+                    </div>
+                    <!-- Real-time account list, shown after sync -->
+                    <div id="plaidAccountsInBox" style="display:none;">
+                        <div style="font-size:11px; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px;">
+                            🏛 <span id="plaidInstitutionName">Live Accounts</span>
                         </div>
-                        <div id="plaidLastSyncRow" style="display:none; font-size:11px; color:#aaa;">
-                            Last synced: <span id="plaidLastSync"></span>
-                        </div>
-                        <!-- Real-time account list, shown after sync -->
-                        <div id="plaidAccountsInBox" style="display:none;">
-                            <div style="font-size:11px; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px;">
-                                🏛 <span id="plaidInstitutionName">Live Accounts</span>
-                            </div>
-                            <div id="plaidAccountsList" style="display:flex; flex-direction:column; gap:5px;"></div>
-                        </div>
+                        <div id="plaidAccountsList" style="display:flex; flex-direction:column; gap:2px;"></div>
                     </div>
                 </div>
-
-                <!-- Upload Account CSVs box -->
-                <div class="box" style="flex:1; min-width:0;">
-                    <div class="box-title">Upload Account CSVs</div>
-                    <div class="box-body" style="flex-direction:column; gap:10px;">
-                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                            <input type="text" id="csvAccountLabel" placeholder="Account name (e.g. WF Active Cash)" style="font-size:13px; border:1px solid #bbb; padding:4px 8px; width:200px; font-family:Arial,sans-serif;">
-                            <input type="file" id="csvFileInput" accept=".csv" onchange="loadCSV(this)">
-                        </div>
-                        <div id="loadedAccountsList" style="font-size:12px; color:#666;"></div>
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <span id="csvStatus" style="font-size:12px; color:#888; flex:1;"></span>
-                            <button class="add-btn" onclick="clearCSV()" style="margin-top:0; font-size:12px; padding:3px 10px;">Clear All</button>
-                        </div>
-                    </div>
-                </div>
-
             </div>
             <!-- Analytics (shown after load) -->
             <div id="ccAnalytics" style="display:none; width:100%; margin-top:12px;">
@@ -310,6 +288,101 @@
                     <p id="csvEmpty" style="color:#999; font-size:13px;">No data loaded yet.</p>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ── History (CSV Upload) ── -->
+    <div class="sheet" id="history-csv">
+        <div class="sheet-body" style="flex-direction: column;">
+
+            <!-- CSV Upload box -->
+            <div class="box" style="width:100%;">
+                <div class="box-title">Upload Account CSVs</div>
+                <div class="box-body" style="flex-direction:column; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <input type="text" id="csvAccountLabel" placeholder="Account name (e.g. WF Active Cash)" style="font-size:13px; border:1px solid #bbb; padding:4px 8px; width:220px; font-family:Arial,sans-serif;">
+                        <input type="file" id="csvFileInput" accept=".csv" onchange="loadCSV(this)">
+                    </div>
+                    <div id="loadedAccountsList" style="font-size:12px; color:#666;"></div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span id="csvStatus" style="font-size:12px; color:#888; flex:1;"></span>
+                        <button class="add-btn" onclick="clearCSV()" style="margin-top:0; font-size:12px; padding:3px 10px;">Clear All</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CSV Analytics (shown after load) -->
+            <div id="csvHistAnalytics" style="display:none; width:100%; margin-top:12px;">
+                <div class="analytics-cards">
+                    <div class="summary-card">
+                        <div class="summary-label">Total Charged</div>
+                        <div class="summary-value" id="csvHistCharged">—</div>
+                    </div>
+                    <div class="summary-card" style="border-left:3px solid #3d9970;">
+                        <div class="summary-label">Total Received</div>
+                        <div class="summary-value" id="csvHistReceived" style="color:#3d9970;">—</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">Transactions</div>
+                        <div class="summary-value" id="csvHistTxns">—</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">Monthly Avg</div>
+                        <div class="summary-value" id="csvHistAvg">—</div>
+                    </div>
+                </div>
+                <div class="analytics-tables">
+                    <div class="analytics-left-col">
+                        <div class="box">
+                            <div class="box-title">Monthly Info</div>
+                            <div class="box-body" id="csvHistMonthlyBody"></div>
+                        </div>
+                    </div>
+                    <div class="cat-boxes-col">
+                        <div class="box">
+                            <div class="box-title" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Expense Categories</span>
+                                <select class="cat-sort-select" onchange="setCsvHistCatSort(this.value)"
+                                    style="font-size:11px; border:1px solid #bbb; padding:2px 6px; background:#f7f7f7; cursor:pointer; font-family:Arial,sans-serif;">
+                                    <option value="amount">$ Largest First</option>
+                                    <option value="alpha">A → Z</option>
+                                </select>
+                            </div>
+                            <div class="box-body">
+                                <div class="cat-filter-row">
+                                    <span class="filter-lbl">From</span>
+                                    <input type="date" id="csvHistDateFrom" class="date-filter-input" onchange="csvHistApplyCatFilter()">
+                                    <span class="filter-lbl">to</span>
+                                    <input type="date" id="csvHistDateTo" class="date-filter-input" onchange="csvHistApplyCatFilter()">
+                                </div>
+                                <div id="csvHistCategoryBody"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Raw CSV Transaction Data -->
+            <div class="box" style="width:100%; margin-top:12px;" id="histCsvPreviewBox">
+                <div class="box-title" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleHistCsvRaw()">
+                    <span>Raw Transaction Data</span>
+                    <button class="cat-expand-btn" id="histCsvRawToggleBtn" style="font-size:13px; width:auto; color:#555;" onclick="event.stopPropagation(); toggleHistCsvRaw()">▶ Show</button>
+                </div>
+                <div id="histCsvRawContent" style="display:none; overflow-x:auto; padding:10px;">
+                    <div style="margin-bottom:8px;">
+                        <input type="text" id="histCsvSearchInput" placeholder="Search transactions…"
+                            oninput="renderCsvHistRawTable()"
+                            style="width:100%; max-width:420px; font-size:13px; border:1px solid #bbb; padding:5px 10px; font-family:Arial,sans-serif; box-sizing:border-box;">
+                        <span id="histCsvSearchCount" style="margin-left:10px; font-size:12px; color:#aaa;"></span>
+                    </div>
+                    <table id="histCsvTable" class="csv-table">
+                        <thead id="histCsvHead"></thead>
+                        <tbody id="histCsvBody"></tbody>
+                    </table>
+                    <p id="histCsvEmpty" style="color:#999; font-size:13px;">No CSV data loaded yet.</p>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -431,6 +504,20 @@
         </div>
     </div>
 
+</div>
+
+<!-- ── Similar Transactions Sidebar ── -->
+<div id="txnSimilarOverlay" class="txn-similar-overlay" onclick="closeSimilarTxns()"></div>
+<div id="txnSimilarSidebar" class="txn-similar-sidebar">
+    <div class="txn-similar-header">
+        <div style="min-width:0; flex:1;">
+            <div style="font-weight:700; font-size:14px; color:#1a3a6e;">Similar Transactions</div>
+            <div id="txnSimilarKeywords" style="display:flex; flex-wrap:wrap; gap:5px; margin-top:6px;"></div>
+            <div style="font-size:11px; color:#aaa; margin-top:2px;" id="txnSimilarCount"></div>
+        </div>
+        <button onclick="closeSimilarTxns()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#bbb;line-height:1;padding:0 0 0 12px;flex-shrink:0;" onmouseover="this.style.color='#333'" onmouseout="this.style.color='#bbb'">×</button>
+    </div>
+    <div id="txnSimilarBody" style="flex:1; overflow-y:auto;"></div>
 </div>
 
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>

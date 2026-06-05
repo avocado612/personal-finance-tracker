@@ -233,4 +233,56 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .acct-txn-badge { display: inline-block; padding: 0px 4px; border-radius: 3px; font-size: 10px; font-weight: bold; color: #fff; margin-right: 3px; flex-shrink: 0; vertical-align: middle; }
 
 /* ── Connected account pill ── */
-.acct-badge { padding: 6px 12px; border: 1px solid #ddd; background: #fafafa; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.acct-badge { padding: 3px 10px; border: 1px solid #ddd; background: #fafafa; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.acct-badge:hover { background: #f0f4ff; }
+
+/* ── Per-account transaction dropdown ── */
+.acct-txn-panel { border-left: 3px solid #dde; background: #f8f9ff; max-height: 280px; overflow-y: auto; font-size: 11px; }
+.acct-txn-header { display: grid; grid-template-columns: 54px 1fr 72px 80px; padding: 3px 10px; font-size: 10px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid #e8eaf0; position: sticky; top: 0; background: #eef0fb; }
+.acct-txn-row { display: grid; grid-template-columns: 54px 1fr 72px 80px; padding: 3px 10px; border-bottom: 1px solid #eef; color: #444; }
+.acct-txn-row:hover { background: #eaeeff; }
+.acct-txn-date { color: #aaa; white-space: nowrap; }
+.acct-txn-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 6px; }
+.acct-txn-amt  { text-align: right; font-weight: 600; white-space: nowrap; }
+.acct-txn-bal  { text-align: right; font-weight: 600; color: #1a3a6e; white-space: nowrap; }
+
+/* ── Similar Transactions Sidebar ── */
+.txn-similar-sidebar {
+    position: fixed; top: 0; right: -460px; width: 440px; height: 100vh;
+    background: #fff; box-shadow: -4px 0 28px rgba(0,0,0,0.16);
+    transition: right 0.25s cubic-bezier(0.4,0,0.2,1);
+    z-index: 200; display: flex; flex-direction: column; overflow: hidden;
+}
+.txn-similar-sidebar.open { right: 0; }
+.txn-similar-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.18);
+    z-index: 199; display: none;
+}
+.txn-similar-overlay.open { display: block; }
+.txn-similar-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 14px 16px; border-bottom: 1px solid #eee; flex-shrink: 0; background: #f9f9f9;
+}
+.txn-similar-row {
+    display: grid; grid-template-columns: 54px auto 1fr auto;
+    gap: 8px; padding: 8px 14px; border-bottom: 1px solid #f2f2f2;
+    align-items: center; font-size: 12px;
+}
+.txn-similar-row:hover { background: #f7f9ff; }
+.txn-similar-row-date { color: #aaa; font-size: 11px; white-space: nowrap; }
+.txn-similar-row-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
+.txn-similar-row-amt  { font-weight: 600; white-space: nowrap; text-align: right; }
+.sim-kw-chip {
+    font-size: 11px; padding: 2px 8px; border-radius: 12px; cursor: pointer;
+    border: 1px solid #c0d0f0; background: #f0f4ff; color: #1558b0;
+    font-weight: 600; white-space: nowrap; transition: background 0.12s, color 0.12s;
+}
+.sim-kw-chip:hover { background: #dce8ff; }
+.sim-kw-chip.sim-kw-active { background: #1558b0; color: #fff; border-color: #1558b0; }
+.sim-kw-chip.sim-kw-phrase { border-style: dashed; }
+.cat-similar-btn {
+    font-size: 11px; padding: 1px 5px; background: #f0f4ff;
+    border: 1px solid #c0d0f0; border-radius: 3px; cursor: pointer;
+    color: #1558b0; white-space: nowrap; font-family: Arial, sans-serif; flex-shrink: 0;
+}
+.cat-similar-btn:hover { background: #1558b0; color: #fff; border-color: #1558b0; }
