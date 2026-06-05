@@ -1,0 +1,17 @@
+/* ── Edit tab ── */
+.edit-divider { color: #666; font-size: 13px; font-weight: bold; margin-top: 10px; padding-top: 6px; border-top: 1px solid #ddd; }
+.edit-divider:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.edit-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.rule-cat-select { font-size: 13px; border: 1px solid #bbb; padding: 2px 4px; background: #fff; }
+
+/* ── Custom category keyword columns ── */
+.kw-col { border: 1px solid #ccc; padding: 8px; min-width: 115px; background: #fafafa; }
+.kw-col-title { font-weight: bold; font-size: 13px; margin-bottom: 6px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+.kw-item { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; font-size: 12px; }
+.kw-item span { flex: 1; word-break: break-all; }
+.kw-add-row { display: flex; gap: 4px; margin-top: 4px; }
+.kw-add-row input { font-size: 12px; width: 80px; border: 1px solid #bbb; padding: 2px 4px; background: #fff; font-family: Arial, sans-serif; }
+.sub-cats-divider { font-size: 11px; color: #888; font-weight: bold; margin: 8px 0 4px; border-top: 1px dashed #ccc; padding-top: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+.sub-cat-edit-group { margin-bottom: 6px; }
+.sub-cat-edit-title { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: bold; color: #444; margin-bottom: 2px; }
+.sub-cat-edit-title span { flex: 1; }

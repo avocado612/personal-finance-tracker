@@ -1,0 +1,14 @@
+/* ── Income box layout ── */
+.income-cols { display: grid; grid-template-columns: 1fr 1fr; }
+.income-stack { display: contents; }
+.income-section { padding: 8px 14px; display: flex; flex-direction: column; gap: 5px; align-content: flex-start; }
+.pretax-annual   { grid-area: 1 / 1; border-right: 1px solid #ccc; }
+.pretax-monthly  { grid-area: 2 / 1; border-right: 1px solid #ccc; border-top: 1px solid #ccc; }
+.posttax-annual  { grid-area: 1 / 2; padding-bottom: 28px; }
+.posttax-monthly { grid-area: 2 / 2; border-top: 1px solid #ccc; }
+.section-total { font-weight: bold; font-size: 15px; padding-bottom: 4px; border-bottom: 1px solid #eee; margin-bottom: 3px; }
+
+/* ── PostTax detail layout ── */
+.section-content-row { display: flex; align-items: center; gap: 16px; }
+.section-rows { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.tax-rate-info { font-size: 12px; font-style: italic; color: #999; text-align: right; line-height: 2; white-space: nowrap; }

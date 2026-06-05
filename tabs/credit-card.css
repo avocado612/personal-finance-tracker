@@ -1,0 +1,87 @@
+/* ── CC Analytics summary cards ── */
+.analytics-cards { display: flex; gap: 12px; margin-bottom: 12px; }
+.summary-card { border: 1px solid #999; flex: 1; padding: 10px 14px; background: #fafafa; }
+.summary-label { font-size: 12px; color: #666; margin-bottom: 4px; }
+.summary-value { font-size: 20px; font-weight: bold; }
+.summary-value-sm { font-size: 13px; padding-top: 4px; }
+.analytics-tables { display: flex; gap: 12px; align-items: flex-start; }
+.cc-month-box { flex: 0 0 360px !important; }
+.cat-boxes-col { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
+.cat-boxes-col .box { width: 100%; }
+
+/* ── Monthly table ── */
+.analytics-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.analytics-table th { text-align: left; color: #555; font-size: 12px; font-weight: bold; border-bottom: 1px solid #ccc; padding: 4px 8px; }
+.analytics-table td { padding: 2px 8px; border-bottom: 1px solid #f0f0f0; }
+.analytics-table tr:last-child td { border-bottom: none; }
+.analytics-table .col-amt { text-align: right; font-weight: bold; white-space: nowrap; }
+.analytics-table .col-pct { text-align: right; color: #888; width: 30px; }
+.grand-total td { border-top: 1px solid #ccc !important; font-weight: bold; border-bottom: none !important; }
+
+/* ── Category bar chart ── */
+.cat-chart { padding: 2px 0; }
+.cat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.cat-expand-btn { border: none; background: none; cursor: pointer; font-size: 10px; color: #999; padding: 0; line-height: 1; flex-shrink: 0; width: 14px; text-align: center; }
+.cat-expand-btn:hover { color: #333; }
+.cat-name { min-width: 84px; max-width: 84px; font-size: 12px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-bar-track { flex: 1; height: 26px; background: #e8e8e8; border-radius: 3px; overflow: hidden; }
+.cat-bar-fill { height: 100%; background: #444; border-radius: 3px; }
+.cat-bar-fill[data-cat="Groceries"]     { background: linear-gradient(90deg, #388e3c, #66bb6a); }
+.cat-bar-fill[data-cat="Dining Out"]    { background: repeating-linear-gradient(-45deg, #e65100, #e65100 10px, #fff3e0 10px, #fff3e0 20px); }
+.cat-bar-fill[data-cat="Gas & Auto"]    { background: linear-gradient(90deg, #f57f17, #ffca28); }
+.cat-bar-fill[data-cat="Shopping"]      { background: repeating-linear-gradient(-45deg, #1565c0, #1565c0 10px, #e65100 10px, #e65100 20px); }
+.cat-bar-fill[data-cat="Subscriptions"] { background: linear-gradient(90deg, #6a1b9a, #ce93d8); }
+.cat-bar-fill[data-cat="Health"]        { background: linear-gradient(90deg, #c62828, #ef9a9a); }
+.cat-bar-fill[data-cat="Travel"]        { background: linear-gradient(90deg, #00695c, #4db6ac); }
+.cat-bar-fill[data-cat="Utilities"]     { background: linear-gradient(90deg, #f9a825, #fff176); }
+.cat-bar-fill[data-cat="Entertainment"] { background: linear-gradient(90deg, #4527a0, #b39ddb); }
+.cat-bar-fill[data-cat="Transfers"]     { background: linear-gradient(90deg, #455a64, #b0bec5); }
+.cat-bar-fill[data-cat="Payment"]       { background: linear-gradient(90deg, #1a237e, #7986cb); }
+.cat-bar-fill[data-cat="Other"]         { background: #87ceeb; }
+.cat-dollar { font-size: 12px; font-weight: bold; min-width: 58px; text-align: right; white-space: nowrap; }
+.cat-pct-lbl { font-size: 11px; color: #888; min-width: 34px; text-align: right; }
+.cat-axis-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.cat-axis-spacer { min-width: 90px; max-width: 90px; }
+.cat-axis-ticks { flex: 1; position: relative; height: 16px; border-top: 1px solid #ccc; }
+.cat-axis-ticks span { position: absolute; font-size: 10px; color: #aaa; top: 3px; transform: translateX(-50%); white-space: nowrap; }
+.cat-axis-ticks span:first-child { transform: none; }
+.cat-axis-ticks span:last-child  { transform: translateX(-100%); }
+.cat-total-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; padding-top: 6px; border-top: 1px solid #ccc; }
+.cat-emoji { font-size: 22px; flex-shrink: 0; }
+
+/* ── Transaction detail rows ── */
+.cat-detail { padding: 0 0 6px 110px; }
+.cat-detail-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 4px; border-bottom: 1px solid #f5f5f5; font-size: 12px; color: #555; cursor: pointer; border-radius: 2px; }
+.cat-detail-row:hover { background: #f5f5f5; }
+.cat-detail-row.txn-highlight { background: #fff3b0; transition: background 0.3s ease; }
+.cat-detail-date { color: #aaa; white-space: nowrap; flex-shrink: 0; font-size: 11px; }
+.cat-desc-group { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.cat-detail-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-detail-amt { white-space: nowrap; font-weight: bold; flex-shrink: 0; }
+.refund-amt { color: #2a7a2a; }
+.cat-classify-wrap { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; }
+.cat-classify-btn { font-size: 11px; padding: 2px 10px; border: 1px solid #bbb; background: #f0f0f0; cursor: pointer; white-space: nowrap; border-radius: 2px; color: #333; }
+.cat-classify-btn:hover { background: #e0e0e0; border-color: #999; }
+.cat-classify-select { font-size: 12px; padding: 2px 4px; border: 1px solid #bbb; background: #fff; border-radius: 2px; }
+.unmatched-note { font-size: 12px; color: #999; font-style: italic; padding: 4px 0; }
+.sub-cat-header { font-size: 11px; font-weight: bold; color: #666; background: #f0f0f0; padding: 2px 6px; margin: 4px 0 2px; border-left: 3px solid #bbb; }
+.sub-cat-header.sub-cat-other { color: #aaa; border-left-color: #ddd; }
+
+/* ── Date filter / month selection ── */
+.cat-title-row { display: flex; justify-content: space-between; align-items: center; }
+.cat-filter-row { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+.filter-lbl { font-size: 12px; color: #666; }
+.date-filter-input { font-size: 12px; padding: 2px 4px; border: 1px solid #bbb; color: #333; background: #fff; }
+.month-row { cursor: pointer; }
+.month-row:hover td { background: #f0f0f0 !important; }
+.month-row-active td { background: #e4e4e4 !important; font-weight: bold; }
+
+/* ── CSV raw table ── */
+.csv-table { display: none; border-collapse: collapse; font-size: 10px; white-space: nowrap; }
+.csv-table th { background: #f2f2f2; border: 1px solid #ccc; padding: 5px 10px; text-align: left; font-weight: bold; }
+.csv-table td { border: 1px solid #ddd; padding: 4px 10px; }
+.csv-table .csv-even { background: #fff; }
+.csv-table .csv-odd  { background: #fafafa; }
+.csv-month-a td { background: #fff; }
+.csv-month-b td { background: #eef2f8; }
+.csv-cat-cell { color: #555; font-size: 12px; font-style: italic; white-space: nowrap; }

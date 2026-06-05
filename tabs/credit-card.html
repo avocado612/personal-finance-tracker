@@ -1,0 +1,56 @@
+<div class="sheet-body" style="flex-direction: column;">
+    <div class="box" style="width:100%;">
+        <div class="box-title">Upload Wells Fargo CSV</div>
+        <div class="box-body" style="flex-direction: row; align-items: center; gap: 16px;">
+            <input type="file" id="csvFileInput" accept=".csv" onchange="loadCSV(this)">
+            <button class="add-btn" onclick="clearCSV()">Clear</button>
+            <span id="csvStatus" style="font-size:13px; color:#666;"></span>
+        </div>
+    </div>
+    <!-- Analytics (shown after load) -->
+    <div id="ccAnalytics" style="display:none; width:100%; margin-top:12px;">
+        <div class="analytics-cards">
+            <div class="summary-card"><div class="summary-label">Total Charged</div><div class="summary-value" id="ccTotalCharged">—</div></div>
+            <div class="summary-card"><div class="summary-label">Transactions</div><div class="summary-value" id="ccTotalTxn">—</div></div>
+            <div class="summary-card"><div class="summary-label">Monthly Avg</div><div class="summary-value" id="ccMonthlyAvg">—</div></div>
+        </div>
+        <div class="analytics-tables">
+            <div class="box cc-month-box">
+                <div class="box-title">Monthly Expenses</div>
+                <div class="box-body" id="ccMonthlyBody"></div>
+            </div>
+            <div class="cat-boxes-col">
+                <div class="box">
+                    <div class="box-title">Expense Categories — <span id="ccMonthCatTitle">Month</span></div>
+                    <div class="box-body" id="ccMonthCategoryBody">
+                        <p class="sub-empty" style="padding:8px 0;">← Click a month to see its breakdown</p>
+                    </div>
+                </div>
+                <div class="box">
+                    <div class="box-title">Expense Categories — Range</div>
+                    <div class="box-body">
+                        <div class="cat-filter-row">
+                            <span class="filter-lbl">From</span>
+                            <input type="date" id="ccDateFrom" class="date-filter-input" onchange="ccApplyDateFilter()">
+                            <span class="filter-lbl">to</span>
+                            <input type="date" id="ccDateTo" class="date-filter-input" onchange="ccApplyDateFilter()">
+                            <button class="add-btn" style="margin-top:0; padding:2px 8px;" onclick="setCcDateToToday()">Current</button>
+                        </div>
+                        <div id="ccCategoryBody"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="box" style="width:100%; margin-top: 12px;" id="csvPreviewBox">
+        <div class="box-title">Raw CSV Contents</div>
+        <div style="overflow-x: auto; padding: 10px;">
+            <table id="csvTable" class="csv-table">
+                <thead id="csvHead"></thead>
+                <tbody id="csvBody"></tbody>
+            </table>
+            <p id="csvEmpty" style="color:#999; font-size:13px;">No file loaded yet.</p>
+        </div>
+    </div>
+</div>
