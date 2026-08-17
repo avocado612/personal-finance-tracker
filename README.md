@@ -1,5 +1,7 @@
 # personal-finance-tracker
 
+[![Download for Linux](https://img.shields.io/badge/Download-Linux%20AppImage-blue?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/avocado612/personal-finance-tracker/releases/latest)
+
 A personal finance tracker: budget planning, live transaction sync via [Plaid](https://plaid.com), and CSV statement import — packaged as a desktop app (Electron) that also runs as a plain local web server. Everything runs on your machine; nothing is hosted remotely.
 
 This is personal software connected to real bank accounts. The steps below are written to keep your credentials and financial data from ending up somewhere they shouldn't.
