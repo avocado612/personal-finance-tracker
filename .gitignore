@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.plaid_token
+.plaid_items.json
+.plaid_history.json
+.csv_data/
+.income_data/
+.budget_settings.json
+localhost.pem
+localhost-key.pem
