@@ -51,6 +51,29 @@ input.name-input { width: 140px; border-bottom: 1px solid #bbb !important; }
 input.name-input:focus { border-bottom-color: #000 !important; }
 #editExpenseList input.name-input { width: auto; flex: 1; }
 
+/* Expense edit row — name + budget amount */
+/* Combined category card budget row */
+.cat-budget-row {
+    display: flex; align-items: baseline; gap: 2px;
+    font-size: 12px; color: #555;
+    margin-bottom: 6px; padding-bottom: 5px;
+    border-bottom: 1px dashed #e0e0e0;
+}
+.cat-budget-input {
+    width: 52px; border: 1px solid #ccc; border-radius: 3px;
+    padding: 2px 4px; font-size: 12px; background: #fff;
+    font-family: Arial, sans-serif;
+}
+.cat-budget-input:focus { border-color: #1558b0; outline: none; }
+.cat-budget-label { font-size: 11px; color: #aaa; }
+.kw-col-title-user { display: flex; align-items: center; gap: 4px; }
+.cat-name-input {
+    flex: 1; min-width: 0; border: none; border-bottom: 1px solid #bbb;
+    font-size: 13px; font-weight: bold; background: transparent;
+    font-family: Arial, sans-serif; padding: 1px 2px;
+}
+.cat-name-input:focus { border-bottom-color: #1558b0; outline: none; }
+
 .money-wrap { display: inline-flex; align-items: baseline; border-bottom: 1px solid #bbb; }
 .money-wrap:focus-within { border-bottom-color: #000; }
 .pct-wrap { display: inline-flex; align-items: baseline; border-bottom: 1px solid #bbb; }
@@ -83,13 +106,143 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .tax-check-row label { font-weight: 600; min-width: 160px; cursor: pointer; }
 .tax-eff-rate { font-size: 12px; color: #1558b0; font-weight: 700; min-width: 70px; }
 .tax-detail { font-size: 11px; color: #aaa; }
+.tax-eff-rate-actual { font-size: 11px; color: #3d9970; font-weight: 600; font-style: italic; }
 
-/* ── Monthly Average ── */
+/* ── Income tab ── */
+#incomeReviewForm .box-row label { min-width: 190px; }
+#incomeDocsList .box-row { align-items: flex-start; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+#incomeDocsList .box-row:last-child { border-bottom: none; }
+#incomeBracketBody { line-height: 1.5; }
+
+/* ── Monthly Average (legacy) ── */
 .avg-block .avg-label { font-weight: bold; margin-bottom: 4px; }
 .avg-block .avg-value { font-size: 17px; font-weight: bold; }
 
+/* ── Horizontal Budget Flow ── */
+.flow-horiz-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 16px 0;
+    min-height: 320px;
+    flex: 1;
+}
+
+/* SVG arrow layer — covers entire wrap */
+.flow-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 0;
+}
+
+/* Income node (left anchor) */
+.flow-income-node {
+    flex-shrink: 0;
+    width: 148px;
+    background: linear-gradient(160deg, #1a3a6e 0%, #1558b0 100%);
+    color: #fff;
+    padding: 16px 14px;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 3px 12px rgba(21,88,176,0.22);
+    z-index: 1;
+    align-self: center;
+    position: relative;
+}
+.flow-income-title {
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.9px; color: rgba(255,255,255,0.65); margin-bottom: 6px;
+}
+.flow-income-amt {
+    font-size: 24px; font-weight: 700; letter-spacing: -0.5px; line-height: 1;
+}
+.flow-income-sub {
+    font-size: 10px; color: rgba(255,255,255,0.6); margin-top: 5px;
+}
+.flow-income-sub span { color: rgba(255,255,255,0.9); font-weight: 600; }
+
+/* Category boxes column (right side) */
+.flow-cats-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;  /* boxes size to their own content instead of stretching to fill the column */
+    gap: 10px;
+    margin-left: 90px;   /* gap for the SVG arrows */
+    flex: 1;
+    z-index: 1;
+    position: relative;
+}
+
+/* Individual category box */
+.flow-cat {
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.07);
+}
+.flow-cat-hdr {
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    padding: 7px 12px;
+    font-size: 12px; font-weight: 700;
+}
+.flow-cat-body {
+    padding: 5px 12px 8px;
+    display: flex; flex-direction: column; gap: 3px;
+    font-size: 12px; background: #fff;
+}
+.flow-cat-body .box-row { font-size: 12px; gap: 10px; }
+.flow-cat-body .box-row label { font-size: 12px; color: #555; }
+.flow-cat-body .val-input  { width: 78px; font-size: 12px; padding: 2px 4px; }
+.flow-cat-body .sub-auto-row { font-size: 12px; color: #777; }
+
+/* Expenses list: lay out as a 2-column grid so the label/budget gap tracks the
+   longest category name instead of stretching to the card's full width. */
+#idealExpenseList { display: grid; grid-template-columns: max-content max-content; column-gap: 14px; row-gap: 4px; align-items: center; }
+#idealExpenseList .box-row { display: contents; }
+#idealExpenseList .val-input { width: 56px; }
+
+/* Per-section colours */
+.flow-exp-cat   { border: 1.5px solid #f0b8b8; }
+.flow-exp-cat   .flow-cat-hdr { background: #fff0f0; color: #b03030; border-bottom: 1px solid #fdd; }
+.flow-save-cat  { border: 1.5px solid #a8dfc0; }
+.flow-save-cat  .flow-cat-hdr { background: #f0fff6; color: #1a7a45; border-bottom: 1px solid #c8f0d8; }
+.flow-leftover-cat { border: 2px solid #ccc; background: #f5f5f5; }
+.flow-leftover-hdr { padding: 10px 14px !important; }
+.flow-leftover-cat .flow-cat-hdr { background: #f0f0f0; color: #444; }
+.flow-leftover-amt { font-size: 20px; font-weight: 700; color: #27ae60; }
+
+/* Savings input row — match font size of other flow-cat entries */
+.flow-saving-row { gap: 6px; font-size: 12px; }
+.flow-saving-row .money-wrap { font-size: 12px; }
+.flow-saving-row .del-btn    { font-size: 11px; padding: 0 5px; line-height: 18px; }
+.flow-saving-name {
+    flex: 1; min-width: 0; border: 1px solid #ddd; border-radius: 3px;
+    padding: 1px 5px; font-size: 12px; color: #333; font-family: Arial, sans-serif;
+    height: 22px;
+}
+.flow-saving-name:focus { outline: none; border-color: #1558b0; }
+.flow-save-cat .val-input { font-size: 12px; width: 70px; padding: 1px 4px; height: 22px; }
+
 /* ── Subscription list tab ── */
 .sub-empty { color: #999; font-size: 13px; padding: 4px 0; }
+.sub-detect-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px solid #f0f0f0; gap: 12px;
+}
+.sub-detect-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.sub-detect-name { font-size: 12px; font-weight: 600; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub-detect-meta { font-size: 10px; color: #aaa; }
+.sub-detect-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.sub-detect-amt  { font-size: 12px; font-weight: 700; color: #555; white-space: nowrap; }
+.sub-confirm-btn {
+    font-size: 11px; padding: 2px 10px; background: #f0f7ff;
+    border: 1px solid #b0ccee; border-radius: 3px; cursor: pointer;
+    color: #1558b0; font-weight: 600; white-space: nowrap;
+}
+.sub-confirm-btn:hover { background: #1558b0; color: #fff; border-color: #1558b0; }
 
 /* ── Tax rate note ── */
 .section-content-row { display: flex; align-items: center; gap: 16px; }
@@ -112,6 +265,11 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .analytics-left-col .box { width: 100%; }
 .cat-boxes-col { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
 .cat-boxes-col .box { width: 100%; }
+
+/* Scrollable transaction lists — fixed height so long histories don't blow out the page,
+   with a scrollbar to reach older rows beyond what's initially visible. */
+#recentTxnsBody { max-height: 680px; overflow-y: auto; }
+#zelleVenmoBody { max-height: 178px; overflow-y: auto; }
 
 /* ── Monthly table inside cc-month-box ── */
 .analytics-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -201,7 +359,7 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .plaid-badge { font-size: 10px; margin-right: 3px; flex-shrink: 0; opacity: 0.8; }
 
 /* ── Keyword columns (Edit tab) ── */
-.kw-col { border: 1px solid #ccc; padding: 8px; min-width: 115px; background: #fafafa; }
+.kw-col { border: 1px solid #ccc; padding: 8px; min-width: 130px; background: #fafafa; }
 .kw-col-title { font-weight: bold; font-size: 13px; margin-bottom: 6px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
 .kw-item { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; font-size: 12px; }
 .kw-item span { flex: 1; word-break: break-all; }
@@ -213,6 +371,33 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .sub-cat-edit-title span { flex: 1; }
 .sub-cat-header { font-size: 11px; font-weight: bold; color: #666; background: #f0f0f0; padding: 2px 6px; margin: 4px 0 2px; border-left: 3px solid #bbb; }
 .sub-cat-header.sub-cat-other { color: #aaa; border-left-color: #ddd; }
+
+/* ── Ideal Pie Chart ── */
+.ideal-pie-box { min-width: 350px; }
+.ideal-pie-box .box-body { padding: 12px 14px; }
+#idealPieSvg { display: block; margin: 0 auto; }
+.pie-legend-row { display: flex; align-items: center; gap: 9px; font-size: 16px; margin-bottom: 7px; }
+.pie-legend-dot  { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; }
+.pie-legend-name { flex: 1; color: #444; }
+.pie-legend-pct  { font-weight: 700; color: #333; min-width: 46px; text-align: right; }
+
+/* ── Monthly Real tab ── */
+.real-nav-btn { background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 13px; }
+.real-nav-btn:hover { background: #e0e0e0; }
+.real-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.real-table thead { background: #f5f5f5; }
+.real-th-cat { text-align: left;  padding: 8px 14px; font-size: 12px; color: #666; font-weight: 600; border-bottom: 2px solid #ddd; }
+.real-th-num { text-align: right; padding: 8px 14px; font-size: 12px; color: #666; font-weight: 600; border-bottom: 2px solid #ddd; width: 100px; }
+.real-row:nth-child(even) { background: #fafafa; }
+.real-row:hover { background: #f0f5ff; }
+.real-td-cat { padding: 7px 14px; color: #333; }
+.real-td-num { padding: 7px 14px; text-align: right; font-variant-numeric: tabular-nums; }
+.real-budget { color: #444; }
+.real-actual { color: #1558b0; font-weight: 500; }
+.real-diff   { font-weight: 600; }
+.real-zero   { color: #bbb; }
+.real-foot-row { border-top: 2px solid #ccc; background: #f7f7f7; }
+.real-foot-row td { padding: 8px 14px; }
 
 /* ── Raw table alpha-group header ── */
 .raw-alpha-group td { background: #1a1a2e !important; color: #fff; font-weight: bold; font-size: 12px; padding: 3px 10px; letter-spacing: 1px; }
@@ -286,3 +471,63 @@ input.name-input:focus { border-bottom-color: #000 !important; }
     color: #1558b0; white-space: nowrap; font-family: Arial, sans-serif; flex-shrink: 0;
 }
 .cat-similar-btn:hover { background: #1558b0; color: #fff; border-color: #1558b0; }
+
+/* ── AI Analyze ── */
+/* .sheet.active is display:block by default; this tab needs a flex column
+   (sidebar + conversation) that fills the available height instead. */
+#ai-analyze.sheet.active { display: flex; flex-direction: column; }
+.ai-layout { display: flex; flex: 1; min-height: 0; gap: 0; padding: 0; align-items: stretch; }
+
+.ai-sidebar { width: 220px; flex-shrink: 0; border-right: 1px solid #999; background: #fafafa; display: flex; flex-direction: column; }
+.ai-sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #ccc; font-weight: bold; font-size: 13px; }
+.ai-new-chat-btn { border: 1px solid #999; background: #f7f7f7; cursor: pointer; font-size: 12px; padding: 3px 8px; border-radius: 3px; font-family: Arial, sans-serif; }
+.ai-new-chat-btn:hover { background: #eee; }
+.ai-chat-list { flex: 1; overflow-y: auto; }
+.ai-chat-empty { padding: 14px 10px; font-size: 12px; color: #888; }
+.ai-chat-item { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 8px 10px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 13px; }
+.ai-chat-item:hover { background: #f0f0f0; }
+.ai-chat-item.active { background: #fff; font-weight: bold; border-left: 3px solid #000; padding-left: 7px; }
+.ai-chat-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-chat-item-title[contenteditable="true"] { white-space: normal; outline: 1px solid #1558b0; background: #fff; cursor: text; }
+.ai-chat-del-btn { border: none; background: none; cursor: pointer; color: #b00; font-size: 15px; line-height: 1; padding: 0 2px; flex-shrink: 0; }
+.ai-chat-del-btn:hover { color: #f00; }
+
+.ai-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ai-conversation { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.ai-empty-state { color: #888; font-size: 14px; margin: auto; text-align: center; }
+.ai-msg { max-width: 70%; padding: 8px 12px; border-radius: 8px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+.ai-msg-user { align-self: flex-end; background: #1558b0; color: #fff; }
+.ai-msg-assistant { align-self: flex-start; background: #f0f0f0; color: #000; border: 1px solid #e0e0e0; }
+.ai-msg-error { align-self: center; background: #fdecea; color: #b00; border: 1px solid #f5c6c0; font-size: 13px; max-width: 90%; }
+.ai-tool-note { align-self: flex-start; font-size: 11px; color: #888; font-style: italic; padding: 2px 4px; }
+.ai-typing { align-self: flex-start; color: #888; font-size: 13px; font-style: italic; }
+
+.ai-input-row { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid #ccc; background: #fafafa; flex-shrink: 0; }
+.ai-input-textarea { flex: 1; resize: none; border: 1px solid #bbb; border-radius: 4px; padding: 8px 10px; font-size: 14px; font-family: Arial, sans-serif; }
+.ai-input-textarea:focus { outline: none; border-color: #1558b0; }
+.ai-send-btn { border: none; background: #27ae60; color: #fff; cursor: pointer; font-weight: 700; font-size: 13px; padding: 0 18px; border-radius: 4px; font-family: Arial, sans-serif; }
+.ai-send-btn:hover:not(:disabled) { background: #219150; }
+.ai-send-btn:disabled { background: #aaa; cursor: default; }
+
+/* ── App Settings ── */
+.as-update-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.as-status-text { font-size: 13px; color: #555; }
+.as-status-text.as-ok { color: #27ae60; font-weight: 600; }
+.as-status-text.as-warn { color: #b8860b; font-weight: 600; }
+.as-status-text.as-err { color: #b00; font-weight: 600; }
+.as-empty { color: #888; font-size: 13px; }
+.as-help { font-size: 12px; color: #888; margin: 0 0 8px; line-height: 1.4; }
+.as-help-link { color: #1558b0; }
+.as-optional { font-weight: normal; font-size: 11px; color: #999; }
+.as-key-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.as-key-input { flex: 1; border: 1px solid #bbb; border-radius: 4px; padding: 6px 8px; font-size: 13px; font-family: Arial, sans-serif; }
+.as-key-input:focus { outline: none; border-color: #1558b0; }
+.as-msg { font-size: 12px; margin: 6px 0 0; min-height: 14px; }
+.as-msg.as-ok { color: #27ae60; }
+.as-msg.as-err { color: #b00; }
+.as-changelog-entry { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.as-changelog-entry:last-child { border-bottom: none; }
+.as-changelog-heading { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.as-changelog-version { font-weight: bold; font-size: 13px; }
+.as-changelog-date { font-size: 11px; color: #999; }
+.as-changelog-items { margin: 0; padding-left: 18px; font-size: 13px; color: #333; line-height: 1.6; }

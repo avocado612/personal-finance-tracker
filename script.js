@@ -7,66 +7,255 @@ function showTab(id, el) {
     document.getElementById(id).classList.add('active');
     el.classList.add('active');
     if (id === 'subscription') renderDetectedSubscriptions();
+    if (id === 'monthly-real') renderMonthlyReal();
+    if (id === 'income') { renderIncomeDocsList(); renderIncomeStatementRates(); }
+    if (id === 'ai-analyze') aiInit();
+    if (id === 'app-settings') appSettingsInit();
+}
+
+/* ══════════════════════════════════════════
+   Monthly Real — Budget vs. Actual
+══════════════════════════════════════════ */
+let _realMonthOffset = 0; // 0 = current month, -1 = last month, etc.
+
+function _realMonthKey(offset) {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + offset);
+    return d.toISOString().slice(0, 7); // "YYYY-MM"
+}
+
+function shiftRealMonth(dir) {
+    _realMonthOffset += dir;
+    // Don't allow going into the future
+    if (_realMonthOffset > 0) _realMonthOffset = 0;
+    renderMonthlyReal();
+}
+
+function renderMonthlyReal() {
+    const monthKey = _realMonthKey(_realMonthOffset);
+    const [year, mon] = monthKey.split('-');
+    const label = new Date(parseInt(year), parseInt(mon) - 1, 1)
+        .toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+    const labelEl = document.getElementById('realMonthLabel');
+    if (labelEl) labelEl.textContent = label;
+
+    // Hide next-arrow if already at current month
+    const nextBtn = document.querySelector('.real-nav-btn:last-of-type');
+    if (nextBtn) nextBtn.style.visibility = _realMonthOffset >= 0 ? 'hidden' : 'visible';
+
+    renderMonthlyRealIncome(monthKey);
+
+    const body  = document.getElementById('realTableBody');
+    const foot  = document.getElementById('realTableFoot');
+    const noData = document.getElementById('realNoData');
+    if (!body || !foot) return;
+
+    // Compute actual spending per category for the chosen month from Plaid data
+    const monthTxns = ccTransactions.filter(t =>
+        t.isoDate && t.isoDate.startsWith(monthKey) &&
+        t.amount < 0 &&
+        !CC_EXCLUDE_FROM_SPEND.has(t.category)
+    );
+
+    const actualByCategory = {};
+    monthTxns.forEach(t => {
+        actualByCategory[t.category] = (actualByCategory[t.category] || 0) + (-t.amount);
+    });
+
+    if (ccTransactions.length === 0) {
+        body.innerHTML = '';
+        foot.innerHTML = '';
+        if (noData) noData.style.display = '';
+        return;
+    }
+    if (noData) noData.style.display = 'none';
+
+    // Build unified category list (same order as Categories & Budgets in Edit tab)
+    const builtInSet = new Set(CC_CATEGORY_NAMES);
+    const expByName  = {};
+    expenses.forEach(e => { if (e.name) expByName[e.name] = e; });
+
+    const shownNames = new Set();
+    const rows = [];
+
+    // Built-in CC categories first (fixed order)
+    CC_CATEGORY_NAMES.forEach(name => {
+        const budget = expByName[name] ? expByName[name].value : 0;
+        const actual = actualByCategory[name] || 0;
+        rows.push({ name, budget, actual });
+        shownNames.add(name);
+    });
+
+    // User-added categories (not built-in)
+    expenses.forEach(e => {
+        if (e.name && !shownNames.has(e.name)) {
+            const actual = actualByCategory[e.name] || 0;
+            rows.push({ name: e.name, budget: e.value, actual });
+            shownNames.add(e.name);
+        }
+    });
+
+    // Auto-detected subscriptions total
+    const subActual = subscriptions.reduce((s, sub) => s + sub.value, 0);
+
+    let totalBudget = 0, totalActual = 0;
+
+    body.innerHTML = rows.map(({ name, budget, actual }) => {
+        totalBudget += budget;
+        totalActual += actual;
+        const diff = budget - actual;
+        const hasBudget = budget > 0;
+        const hasActual = actual > 0;
+        const diffColor = diff >= 0 ? '#27ae60' : '#c0392b';
+        const diffSign  = diff >= 0 ? '+' : '';
+
+        return `<tr class="real-row">
+            <td class="real-td-cat">${name}</td>
+            <td class="real-td-num real-budget">${hasBudget ? '$' + fmt(budget, 0) : '<span class="real-zero">—</span>'}</td>
+            <td class="real-td-num real-actual">${hasActual ? '$' + fmt(actual, 0) : '<span class="real-zero">$0</span>'}</td>
+            <td class="real-td-num real-diff" style="color:${hasBudget || hasActual ? diffColor : '#ccc'}">${hasBudget || hasActual ? diffSign + '$' + fmt(Math.abs(diff), 0) : '—'}</td>
+        </tr>`;
+    }).join('');
+
+    const totalDiff  = totalBudget - totalActual;
+    const totalColor = totalDiff >= 0 ? '#27ae60' : '#c0392b';
+    const totalSign  = totalDiff >= 0 ? '+' : '';
+    foot.innerHTML = `<tr class="real-foot-row">
+        <td class="real-td-cat"><strong>Total</strong></td>
+        <td class="real-td-num real-budget"><strong>$${fmt(totalBudget, 0)}</strong></td>
+        <td class="real-td-num real-actual"><strong>$${fmt(totalActual, 0)}</strong></td>
+        <td class="real-td-num real-diff" style="color:${totalColor};font-weight:700;">${totalSign}$${fmt(Math.abs(totalDiff), 0)}</td>
+    </tr>`;
+}
+
+// Parses a US-style "M/D/YYYY" date string (as extracted from an income document) to a "YYYY-MM" key.
+function _parseUSDateToMonthKey(dateStr) {
+    if (!dateStr) return null;
+    const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (!m) return null;
+    let [, mo, , yr] = m;
+    if (yr.length === 2) yr = '20' + yr;
+    return `${yr}-${mo.padStart(2, '0')}`;
+}
+
+// Income actuals for the Monthly Real sheet — sourced from uploaded income documents only
+// (independent of Plaid/CSV transactions, which explicitly exclude payroll/income categories).
+function renderMonthlyRealIncome(monthKey) {
+    const body   = document.getElementById('realIncomeTableBody');
+    const noData = document.getElementById('realIncomeNoData');
+    if (!body) return;
+
+    const rows = [];
+    ['paystub', 'bonus'].forEach(cat => {
+        const doc = incomeDocs[cat];
+        if (!doc) return;
+        const dm = _parseUSDateToMonthKey(doc.fields.payDate);
+        if (dm && dm !== monthKey) return;
+        rows.push({
+            label:    INCOME_DOC_LABELS[cat],
+            amount:   doc.fields.grossPay,
+            withheld: (doc.fields.fedWithheld || 0) + (doc.fields.stateWithheld || 0),
+            fileName: doc.fileName,
+        });
+    });
+    const rsu = incomeDocs.rsu;
+    if (rsu) {
+        const dm = _parseUSDateToMonthKey(rsu.fields.vestDate);
+        if (!dm || dm === monthKey) {
+            const amount = (rsu.fields.shares != null && rsu.fields.pricePerShare != null)
+                ? rsu.fields.shares * rsu.fields.pricePerShare : null;
+            rows.push({
+                label:    INCOME_DOC_LABELS.rsu,
+                amount,
+                withheld: (rsu.fields.fedWithheld || 0) + (rsu.fields.stateWithheld || 0),
+                fileName: rsu.fileName,
+            });
+        }
+    }
+    const w2 = incomeDocs.w2;
+    if (w2) {
+        rows.push({
+            label:    INCOME_DOC_LABELS.w2 + ' (annual)',
+            amount:   w2.fields.w2Box1,
+            withheld: w2.fields.w2Box2,
+            fileName: w2.fileName,
+        });
+    }
+
+    if (rows.length === 0) {
+        body.innerHTML = '';
+        if (noData) noData.style.display = '';
+        return;
+    }
+    if (noData) noData.style.display = 'none';
+
+    body.innerHTML = rows.map(r => `<tr class="real-row">
+        <td class="real-td-cat">${r.label}</td>
+        <td class="real-td-num real-actual">${r.amount != null ? '$' + fmt(r.amount, 0) : '<span class="real-zero">—</span>'}</td>
+        <td class="real-td-num">${r.withheld ? '$' + fmt(r.withheld, 0) : '<span class="real-zero">—</span>'}</td>
+        <td class="real-td-cat" style="font-size:11px;color:#999;">${r.fileName}</td>
+    </tr>`).join('');
 }
 
 function detectSubscriptions() {
-    if (ccTransactions.length === 0) return [];
-    // Group transactions by simplified merchant name
+    if (!ccTransactions.length) return [];
+    // Group by exact description + exact amount (cents) + exact day of month
     const groups = {};
-    ccTransactions.filter(t => t.amount < 0 && !CC_EXCLUDE_FROM_SPEND.has(t.category))
+    ccTransactions
+        .filter(t => t.amount < 0 && t.isoDate && t.isoDate.length >= 10)
         .forEach(t => {
-            const key = t.desc.toLowerCase()
-                .replace(/[^a-z0-9 ]/g, ' ')
-                .split(/\s+/).slice(0, 3).join(' ')
-                .trim();
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(t);
+            const day = t.isoDate.slice(8, 10);
+            const key = `${t.desc}|||${Math.round(t.amount * 100)}|||${day}`;
+            if (!groups[key]) groups[key] = {
+                name:   t.desc,
+                amount: -t.amount,
+                day:    parseInt(day),
+                months: new Set()
+            };
+            groups[key].months.add(t.isoDate.slice(0, 7));
         });
-
-    const detected = [];
-    Object.entries(groups).forEach(([key, txns]) => {
-        if (txns.length < 2) return;
-        txns.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
-        // Check if amounts are consistent (within 5%)
-        const amounts = txns.map(t => -t.amount);
-        const avgAmt  = amounts.reduce((s, a) => s + a, 0) / amounts.length;
-        const allClose = amounts.every(a => Math.abs(a - avgAmt) / avgAmt < 0.05);
-        if (!allClose) return;
-        // Check if spacing is roughly monthly (25–40 days) or weekly (6–8 days)
-        const gaps = [];
-        for (let i = 1; i < txns.length; i++) {
-            const days = (new Date(txns[i].isoDate) - new Date(txns[i-1].isoDate)) / 86400000;
-            gaps.push(days);
-        }
-        const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-        const isMonthly = avgGap >= 25 && avgGap <= 40;
-        const isWeekly  = avgGap >= 6  && avgGap <= 8;
-        if (!isMonthly && !isWeekly) return;
-        detected.push({
-            name:      txns[txns.length - 1].desc,  // use most recent full name
-            amount:    Math.round(avgAmt * 100) / 100,
-            frequency: isMonthly ? 'monthly' : 'weekly',
-            lastSeen:  txns[txns.length - 1].isoDate,
-            count:     txns.length,
-        });
-    });
-    return detected.sort((a, b) => b.amount - a.amount);
+    return Object.values(groups)
+        .filter(g => g.months.size >= 2)
+        .sort((a, b) => b.amount - a.amount);
 }
 
+let _detectedSubs = [];
+
 function renderDetectedSubscriptions() {
-    const detected = detectSubscriptions();
     const el = document.getElementById('detectedSubsList');
     if (!el) return;
-    if (detected.length === 0) {
-        el.innerHTML = '<p class="sub-empty">No recurring charges detected yet (need 2+ months of data).</p>';
+    if (!ccTransactions.length) {
+        el.innerHTML = '<p class="sub-empty">Sync your bank to auto-detect recurring charges.</p>';
         return;
     }
-    el.innerHTML = detected.map(s => `
-        <div class="box-row" style="padding:3px 0; border-bottom:1px solid #f0f0f0;">
-            <label style="flex:1;">${s.name}</label>
-            <span style="color:#888; font-size:11px; margin-right:12px;">${s.frequency} · seen ${s.count}×</span>
-            <span style="font-weight:bold;">$${fmt(s.amount, 2)}</span>
+    const confirmedNames = new Set(subscriptions.map(s => s.name));
+    _detectedSubs = detectSubscriptions().filter(g => !confirmedNames.has(g.name));
+    if (!_detectedSubs.length) {
+        el.innerHTML = '<p class="sub-empty">No new recurring charges detected.</p>';
+        return;
+    }
+    el.innerHTML = _detectedSubs.map((g, i) => `
+        <div class="sub-detect-row">
+            <div class="sub-detect-info">
+                <span class="sub-detect-name">${g.name.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>
+                <span class="sub-detect-meta">Day ${g.day} of month &nbsp;·&nbsp; ${g.months.size} months seen</span>
+            </div>
+            <div class="sub-detect-right">
+                <span class="sub-detect-amt">$${fmt(g.amount, 2)}/mo</span>
+                <button class="sub-confirm-btn" onclick="confirmSubscription(${i})">+ Confirm</button>
+            </div>
         </div>`).join('');
+}
+
+function confirmSubscription(idx) {
+    const g = _detectedSubs[idx];
+    if (!g) return;
+    subscriptions.push({ id: ++subId, name: g.name, value: g.amount });
+    saveToStorage();
+    renderSubscriptions();
+    renderDetectedSubscriptions();
 }
 
 /* ══════════════════════════════════════════
@@ -106,9 +295,32 @@ function initExpenses() {
     [['Rent', 0], ['Car Lease', 0],
      ['Groceries', 0], ['Dining Out', 0], ['Gas & Auto', 0],
      ['Shopping', 0], ['Subscriptions', 0], ['Health', 0],
-     ['Travel', 0], ['Utilities', 0], ['Entertainment', 0], ['Other', 0]]
+     ['Travel', 0], ['Utilities', 0], ['Entertainment', 0], ['Tithing', 0], ['Other', 0]]
     .forEach(([n, v]) => expenses.push({ id: ++expId, name: n, value: v }));
     renderExpenses();
+}
+
+// One-time repair: a since-fixed bug could re-run the "auto-add missing builtin
+// category" logic against a stale copy of `expenses`, silently creating duplicate
+// rows with the same name (which then made budget lookups pick whichever
+// duplicate happened to be last, so edits appeared to "not save"). Merge
+// same-name duplicates (keeping the first row's id, folding in any nonzero
+// value a duplicate picked up), and collapse repeated blank "in progress"
+// rows left over from failed category-add attempts down to a single one.
+function dedupeExpenses() {
+    const seen = new Map();
+    const result = [];
+    const blanks = [];
+    expenses.forEach(e => {
+        const key = (e.name || '').trim().toLowerCase();
+        if (!key) { blanks.push(e); return; }
+        const existing = seen.get(key);
+        if (!existing) { seen.set(key, e); result.push(e); }
+        else if (!existing.value && e.value) { existing.value = e.value; }
+    });
+    const keepBlanks = blanks.filter(e => e.value);
+    if (blanks.length > keepBlanks.length) keepBlanks.push(blanks.find(e => !e.value));
+    expenses = [...result, ...keepBlanks];
 }
 
 function addExpense() {
@@ -118,8 +330,8 @@ function addExpense() {
     renderExpenses();
     saveToStorage();
     renderExpenseSaveBtn();
-    // Scroll to and focus the new row's name input
-    const newInput = document.getElementById('edit-exp-name-' + newId);
+    // Scroll to and focus the new category's name input
+    const newInput = document.getElementById('cat-name-' + newId);
     if (newInput) {
         newInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         newInput.focus();
@@ -147,26 +359,19 @@ function setExpenseName(id, name) {
 function setExpenseValue(id, val) {
     const exp = expenses.find(e => e.id === id);
     if (exp) exp.value = parseFloat(val) || 0;
-    // Sync the other input (edit tab ↔ Monthly Ideal)
-    const editEl  = document.getElementById('edit-exp-'  + id);
-    const idealEl = document.getElementById('ideal-exp-' + id);
-    if (editEl  && editEl  !== document.activeElement) editEl.value  = val;
+    // Sync the other inputs (categories card ↔ Monthly Ideal)
+    const catEl   = document.getElementById('cat-budget-' + id);
+    const idealEl = document.getElementById('ideal-exp-'  + id);
+    if (catEl   && catEl   !== document.activeElement) catEl.value   = val;
     if (idealEl && idealEl !== document.activeElement) idealEl.value = val;
     calculate();
-    saveToStorage(); // explicit save in addition to the one inside calculate()
+    renderMonthlyReal();
+    saveToStorage();
 }
 
 function renderExpenses() {
-    const editList = document.getElementById('editExpenseList');
-    if (editList) editList.innerHTML = expenses.map(e => `
-        <div class="edit-row" id="exp-row-${e.id}">
-            <input type="text" class="name-input" id="edit-exp-name-${e.id}"
-                   value="${e.name.replace(/"/g,'&quot;')}"
-                   oninput="setExpenseName(${e.id}, this.value)"
-                   placeholder="Expense name">
-            <button class="del-btn" onclick="deleteExpense(${e.id})">×</button>
-        </div>
-    `).join('');
+    scheduleDrawFlowArrows();
+    renderCategories();
 
     // Monthly Ideal — editable amounts (synced)
     const idealList = document.getElementById('idealExpenseList');
@@ -184,26 +389,14 @@ function renderExpenses() {
 }
 
 function renderExpenseSaveBtn() {
-    const area = document.getElementById('expenseSaveBtnArea');
-    if (!area) return;
-    if (_expensesDirty) {
-        area.innerHTML = `<button class="save-cats-btn" onclick="saveExpenseCategories()">💾 Save Categories</button>`;
-    } else {
-        area.innerHTML = `<span class="save-cats-ok" style="display:none"></span>`;
-    }
+    // No-op: categories are auto-saved, no separate save button needed
 }
 
 function saveExpenseCategories() {
-    // Ensure every expense name has an entry in categoryKeywords so it appears in the
-    // classify dropdown and keywords editor. Built-in CC categories are included too —
-    // expense names and CC category names are the same unified concept.
     const builtIn = new Set(CC_CATEGORY_NAMES);
     expenses.forEach(e => {
-        if (e.name) {
-            if (!categoryKeywords[e.name]) categoryKeywords[e.name] = [];
-        }
+        if (e.name && !categoryKeywords[e.name]) categoryKeywords[e.name] = [];
     });
-    // Remove stale user keys that no longer match any expense and have no keywords
     const currentUserNames = new Set(expenses.map(e => e.name).filter(n => n));
     Object.keys(categoryKeywords).forEach(cat => {
         if (!builtIn.has(cat) && !currentUserNames.has(cat) && categoryKeywords[cat].length === 0) {
@@ -211,14 +404,81 @@ function saveExpenseCategories() {
         }
     });
     saveToStorage();
-    renderCustomKeywords();
+    renderCategories();
     if (typeof ccTransactions !== 'undefined' && ccTransactions.length > 0) reCategorizeAll();
     _expensesDirty = false;
-    const area = document.getElementById('expenseSaveBtnArea');
-    if (area) {
-        area.innerHTML = `<span style="color:#27ae60;font-size:12px;font-weight:600;">✓ Saved</span>`;
-        setTimeout(() => { area.innerHTML = ''; }, 2000);
-    }
+}
+
+/* ══════════════════════════════════════════
+   Ideal Savings Rows (Budget Flow panel)
+══════════════════════════════════════════ */
+let idealSavId   = 0;
+let idealSavings = [];
+let _flowPcts    = { exp: 0, save: 0, leftover: 0 };
+
+function addIdealSaving() {
+    idealSavings.push({ id: ++idealSavId, name: '', value: 0 });
+    renderIdealSavings();
+    calculate();
+}
+
+function deleteIdealSaving(id) {
+    idealSavings = idealSavings.filter(s => s.id !== id);
+    renderIdealSavings();
+    calculate();
+}
+
+function setIdealSavingName(id, name) {
+    const s = idealSavings.find(s => s.id === id);
+    if (s) s.name = name;
+    saveToStorage();
+}
+
+function setIdealSavingValue(id, val) {
+    const s = idealSavings.find(s => s.id === id);
+    if (s) s.value = parseFloat(val) || 0;
+    calculate();
+}
+
+function renderIdealSavings() {
+    scheduleDrawFlowArrows();
+    const list = document.getElementById('idealSavingsList');
+    if (!list) return;
+    list.innerHTML = idealSavings.map(s => `
+        <div class="box-row flow-saving-row">
+            <input type="text" class="flow-saving-name" value="${(s.name || '').replace(/"/g, '&quot;')}"
+                   placeholder="Account name"
+                   oninput="setIdealSavingName(${s.id}, this.value)">
+            <span class="money-wrap">$<input class="val-input" type="number" value="${s.value}"
+                  oninput="setIdealSavingValue(${s.id}, this.value)"
+                  onchange="setIdealSavingValue(${s.id}, this.value)"></span>
+            <button class="del-btn" onclick="deleteIdealSaving(${s.id})">×</button>
+        </div>
+    `).join('');
+}
+
+/* ══════════════════════════════════════════
+   Legacy tithing migration
+   Tithing used to be its own "% of avg post-tax income" flow bucket (Edit tab
+   rows, separate from Expenses). It's now just a normal expense category —
+   'Tithing' in CC_CATEGORY_NAMES — so it can be budgeted, auto-categorized
+   from real transactions, and compared in Monthly Real like any other
+   category. This one-time migration seeds the new 'Tithing' expense budget
+   from whatever the old % rows used to compute, so existing users don't see
+   their budgeted tithe amount silently drop to $0.
+══════════════════════════════════════════ */
+function migrateLegacyTithing() {
+    if (localStorage.getItem('fc_tithe_migrated')) return;
+    localStorage.setItem('fc_tithe_migrated', '1');
+    try {
+        const savedRows = JSON.parse(localStorage.getItem('fc_tithings') || 'null');
+        if (!savedRows || savedRows.length === 0) return;
+        const pct = savedRows.reduce((s, t) => s + (t.pct || 0), 0);
+        if (pct <= 0) return;
+        const amt = Math.round(computeAvgPostTax() * (pct / 100) * 100) / 100;
+        const entry = expenses.find(e => e.name === 'Tithing');
+        if (entry && !entry.value && amt > 0) entry.value = amt;
+    } catch (e) {}
 }
 
 /* ══════════════════════════════════════════
@@ -231,16 +491,11 @@ function initSubscriptions() {
     renderSubscriptions();
 }
 
-function addSubscription() {
-    subscriptions.push({ id: ++subId, name: '', value: 0 });
-    renderSubscriptions();
-    calculate();
-}
-
 function deleteSubscription(id) {
     subscriptions = subscriptions.filter(s => s.id !== id);
+    saveToStorage();
     renderSubscriptions();
-    calculate();
+    renderDetectedSubscriptions();
 }
 
 function setSubName(id, name) {
@@ -261,35 +516,20 @@ function setSubValue(id, val) {
 }
 
 function renderSubscriptions() {
-    const total = subscriptions.reduce((s, sub) => s + sub.value, 0);
-
-    // Edit tab — name + amount input + delete
-    document.getElementById('editSubList').innerHTML = subscriptions.length === 0
-        ? '<p class="sub-empty">No subscriptions yet.</p>'
-        : subscriptions.map(s => `
-            <div class="edit-row">
-                <input type="text" class="name-input" value="${s.name}"
-                       oninput="setSubName(${s.id}, this.value)" placeholder="Service name">
-                <span class="money-wrap">$<input class="val-input" type="number" value="${s.value}"
-                      oninput="setSubValue(${s.id}, this.value)"></span>
-                <button class="del-btn" onclick="deleteSubscription(${s.id})">×</button>
-            </div>
-        `).join('');
-
-    // Subscription_List tab — read-only display
-    document.getElementById('subListDisplay').innerHTML = subscriptions.length === 0
-        ? '<p class="sub-empty">No subscriptions yet. Add them in the Edit tab.</p>'
-        : subscriptions.map(s => `
-            <div class="box-row">
-                <label id="sub-lbl-${s.id}">${s.name || '(unnamed)'}</label>
-                <span>$<span id="sub-amt-${s.id}">${fmt(s.value, 2)}</span></span>
-            </div>
-        `).join('') + `
-            <div class="box-row total-row">
-                <label>Total</label>
-                <span>$<span id="subListTotal">${fmt(total, 2)}</span></span>
-            </div>`;
-
+    // Subscription_List tab — confirmed list with delete buttons
+    const display = document.getElementById('subListDisplay');
+    if (display) {
+        display.innerHTML = subscriptions.length === 0
+            ? '<p class="sub-empty">No confirmed subscriptions yet. Confirm from detected list below.</p>'
+            : subscriptions.map(s => `
+                <div class="box-row">
+                    <label>${s.name || '(unnamed)'}</label>
+                    <span style="display:flex;align-items:center;gap:10px;">
+                        <span>$${fmt(s.value, 2)}/mo</span>
+                        <button class="del-btn" onclick="deleteSubscription(${s.id})" title="Remove">×</button>
+                    </span>
+                </div>`).join('');
+    }
     calculate();
 }
 
@@ -341,6 +581,36 @@ function calcBracketTax(grossIncome, { stdDed, brackets }) {
         prev = cap;
     }
     return tax;
+}
+
+// Standalone avg-post-tax-income calc, mirroring the income/tax portion of calculate()
+// below. Used only by migrateLegacyTithing() so it can run before the DOM/expenses
+// state calculate() writes into is necessarily ready.
+function computeAvgPostTax() {
+    const base      = getVal('base');
+    const refresher = getVal('refresher');
+    const rsu       = getVal('rsu');
+    const bonusPct  = getVal('bonusPct');
+    const bonus     = base * (bonusPct / 100);
+    const annual    = base + refresher + rsu + bonus;
+
+    const filing  = document.getElementById('filingStatus')?.value || 'single';
+    const chk     = id => { const el = document.getElementById(id); return el ? el.checked : true; };
+    const fedCfg  = TAX_CONFIG.federal[filing];
+    const caCfg   = TAX_CONFIG.california[filing];
+    const medThreshold = filing === 'mfj' ? 250000 : 200000;
+
+    const fedTax  = chk('chkFed')   ? calcBracketTax(annual, fedCfg) : 0;
+    const caTax   = chk('chkState') ? calcBracketTax(annual, caCfg)  : 0;
+    const ssTax   = chk('chkSS')    ? Math.min(annual, SS_WAGE_BASE) * 0.062 : 0;
+    const medBase = chk('chkMed')   ? annual * 0.0145 : 0;
+    const medAddl = chk('chkMed') && annual > medThreshold ? (annual - medThreshold) * 0.009 : 0;
+    const medTax  = medBase + medAddl;
+    const sdiTax  = chk('chkSDI')  ? annual * 0.011 : 0;
+
+    const totalTax = fedTax + caTax + ssTax + medTax + sdiTax;
+    const netRate  = annual > 0 ? 1 - totalTax / annual : 1;
+    return annual * netRate / 12;
 }
 
 /* ══════════════════════════════════════════
@@ -477,25 +747,9 @@ function calculate() {
         ? `<span style="${blue}">−$${fmt(rsuM2Tax)} = $${fmt(rsuM2 * netRate)}</span>`
         : `<span style="${gray}">$0 (not vest month)</span>`;
 
-    // ── Tithing ──
-    const cPct = getVal('titheChurchPct') / 100;
-    const tPct = getVal('titheTCBCPct')   / 100;
-    const iPct = getVal('titheIVPct')      / 100;
-    const kPct = getVal('titheKccPct')     / 100;
-    const totalTithePct = (cPct + tPct + iPct + kPct) * 100;
+    const avgPostTax = annual * netRate / 12;
 
-    setEl('churchPctDisp',     getVal('titheChurchPct'));
-    setEl('tcbcPctDisp',       getVal('titheTCBCPct'));
-    setEl('ivPctDisp',         getVal('titheIVPct'));
-    setEl('kccPctDisp',        getVal('titheKccPct'));
-    setEl('titheTotalPctDisp', fmt(totalTithePct, 1));
-    setEl('titheChurch',       fmt(preTaxMonthly * cPct, 2));
-    setEl('titheTCBC',         fmt(preTaxMonthly * tPct, 2));
-    setEl('titheIV',           fmt(preTaxMonthly * iPct, 2));
-    setEl('titheKcc',          fmt(preTaxMonthly * kPct, 2));
-    setEl('titheTotal',        fmt(preTaxMonthly * (cPct + tPct + iPct + kPct), 2));
-
-    // ── Monthly Expenses total (regular + subscriptions) ──
+    // ── Monthly Expenses total (regular, incl. Tithing budget + subscriptions) ──
     const regTotal = expenses.reduce((s, e) => s + e.value, 0);
     const subTotal = subscriptions.reduce((s, sub) => s + sub.value, 0);
 
@@ -506,6 +760,32 @@ function calculate() {
     const subListTotalEl = document.getElementById('subListTotal');
     if (subListTotalEl) subListTotalEl.innerText = fmt(subTotal, 2);
 
+    // ── Budget Flow panel (all based on avg post-tax for consistency) ──
+    const savingsAmt  = idealSavings.reduce((s, r) => s + r.value, 0);
+    const afterExp    = avgPostTax - (regTotal + subTotal);
+    const leftover    = afterExp - savingsAmt;
+
+    setEl('flowIncome',       fmt(annual * netRate / 12, 0));
+    setEl('flowSavingsTotal', fmt(savingsAmt, 2));
+
+    const leftoverEl = document.getElementById('flowLeftover');
+    if (leftoverEl) {
+        leftoverEl.textContent = (leftover < 0 ? '-$' : '$') + fmt(Math.abs(leftover), 0);
+        leftoverEl.style.color = leftover >= 0 ? '#27ae60' : '#c0392b';
+    }
+
+    // Store percentages for arrow labels and pie chart
+    if (avgPostTax > 0) {
+        _flowPcts.exp      = (regTotal + subTotal) / avgPostTax * 100;
+        _flowPcts.save     = savingsAmt / avgPostTax * 100;
+        _flowPcts.leftover = leftover / avgPostTax * 100;
+    } else {
+        _flowPcts = { exp: 0, save: 0, leftover: 0 };
+    }
+
+    scheduleDrawFlowArrows();
+    scheduleDrawIdealPie();
+    renderIncomeStatementRates();
     saveToStorage();
 }
 
@@ -578,7 +858,7 @@ const CC_EXCLUDE_FROM_SPEND = new Set(['Payment', 'Transfers']);
 // Spending categories — a positive-amount transaction in these is a refund/return, not income
 const SPENDING_CATS = new Set([
     'Groceries', 'Dining Out', 'Gas & Auto', 'Shopping',
-    'Subscriptions', 'Health', 'Travel', 'Utilities', 'Entertainment',
+    'Subscriptions', 'Health', 'Travel', 'Utilities', 'Entertainment', 'Tithing',
 ]);
 
 // Keywords that signal a merchant refund even if the category wasn't auto-detected
@@ -591,11 +871,38 @@ const REFUND_KEYWORDS = [
 // (not actual income like a paycheck, tax refund, or transfer from a person)
 function isRefundTxn(t) {
     if (!t || t.amount <= 0) return false;
+    // Strongest signal: a prior charge with the exact same description + cent amount.
+    // Catches refunds in any category (incl. 'Other'), e.g. "a.saily London GB" +$34.99
+    // cancelling an earlier −$34.99. Flagged by flagExactRefunds() after each merge.
+    if (t._exactRefund) return true;
     // Plaid classifies credit card returns as TRANSFER_IN — treat them as refunds
     if (t.plaidCategory === 'TRANSFER_IN' && t.accountType === 'credit') return true;
     const d = (t.desc || '').toLowerCase();
     if (REFUND_KEYWORDS.some(kw => d.includes(kw))) return true;
     return SPENDING_CATS.has(t.category);
+}
+
+// Flags a positive transaction as a refund when an earlier charge exists with the
+// exact same description (case-insensitive) and the exact same cent amount.
+function flagExactRefunds() {
+    const norm = s => (s || '').trim().toLowerCase();
+    const chargeKeys = {};   // "desc|||cents" -> earliest charge isoDate
+    ccTransactions.forEach(t => {
+        if (t.amount < 0) {
+            const key = norm(t.desc) + '|||' + Math.round(Math.abs(t.amount) * 100);
+            if (!chargeKeys[key] || (t.isoDate && t.isoDate < chargeKeys[key])) {
+                chargeKeys[key] = t.isoDate || '';
+            }
+        }
+    });
+    ccTransactions.forEach(t => {
+        if (t.amount <= 0) { t._exactRefund = false; return; }
+        const key = norm(t.desc) + '|||' + Math.round(t.amount * 100);
+        const chargeDate = chargeKeys[key];
+        // Match exists, and the charge is dated on/before the credit (a refund follows its charge)
+        t._exactRefund = chargeDate !== undefined &&
+            (!chargeDate || !t.isoDate || chargeDate <= t.isoDate);
+    });
 }
 
 // Fixed color per expense category — consistent across all charts
@@ -609,6 +916,7 @@ const CATEGORY_COLORS = {
     'Travel':        '#d4ac0d',
     'Utilities':     '#7b8ea8',
     'Entertainment': '#c0392b',
+    'Tithing':       '#7b4fc8',
     'Transfers':     '#95a5a6',
     'Payment':       '#bdc3c7',
     'Other':         '#a67c52',
@@ -645,6 +953,32 @@ const DESCRIPTION_HINTS = {
 };
 
 function ccCategorizeFull(description) {
+    const r = _ccCategorizeRaw(description);
+    // A deleted built-in category no longer classifies — fall back to 'Other'
+    if (r.cat !== 'Other' && deletedCats.has(r.cat)) return { cat: 'Other', sub: null };
+    return r;
+}
+
+// Per-transaction category pins — for cases where keyword-based rules are too broad
+// (e.g. "ZELLE TO JONATHAN PARK" is Rent most months but a one-off Gift another month).
+// Keyed by date+description+amount so it only ever matches that exact transaction, and
+// checked ahead of keyword rules in categorizeTxn() so a pin always wins over a bulk rule.
+let txnOverrides = {}; // { 'isoDate|desc|amountCents': 'Category' or 'Category::Sub' }
+
+function txnOverrideKey(isoDate, desc, amount) {
+    return (isoDate || '') + '|' + (desc || '').trim().toLowerCase() + '|' + Math.round((amount || 0) * 100);
+}
+
+function categorizeTxn(desc, isoDate, amount) {
+    const override = txnOverrides[txnOverrideKey(isoDate, desc, amount)];
+    if (override) {
+        if (override.includes('::')) { const [cat, sub] = override.split('::'); return { cat, sub }; }
+        return { cat: override, sub: null };
+    }
+    return ccCategorizeFull(desc);
+}
+
+function _ccCategorizeRaw(description) {
     const d = description.toLowerCase();
     // 1. Sub-category keywords (most specific — sets both cat and sub)
     for (const [cat, subs] of Object.entries(subCategories)) {
@@ -798,6 +1132,7 @@ function mergeTxnSources() {
     ccTransactions = [...plaidTransactions]
         .sort((a, b) => b.isoDate.localeCompare(a.isoDate));
 
+    flagExactRefunds();
     remapRefundMonths();
 }
 
@@ -879,6 +1214,8 @@ function updateSummaryCards({ charges, totalCharged, totalReceived, monthlyAvg }
 }
 
 function rebuildCCAnalyticsUI() {
+    renderDetectedSubscriptions();
+    renderMonthlyReal();
     if (ccTransactions.length === 0) return;
     // Reset mode to charged and reflect that in the card UI
     _chartMode = 'charged';
@@ -905,6 +1242,7 @@ function rebuildCCAnalyticsUI() {
     renderUnifiedRawTable();
     renderTransferTriangle();
     renderRecentTransactions();
+    renderZelleVenmoBox();
 }
 
 function toISO(s) {
@@ -991,8 +1329,11 @@ function renderRecentTransactions() {
         if (countEl) countEl.textContent = '';
         return;
     }
-    // ccTransactions is already sorted newest-first from mergeTxnSources
-    const recent = ccTransactions.slice(0, 20);
+    // ccTransactions is already sorted newest-first from mergeTxnSources.
+    // The box itself is a fixed-height scroll area (see #recentTxnsBody in styles.css)
+    // sized to roughly the old 20-row view — this cap just bounds DOM size, not what's visible.
+    const RECENT_CAP = 300;
+    const recent = ccTransactions.slice(0, RECENT_CAP);
     if (countEl) countEl.textContent = `showing ${recent.length} of ${ccTransactions.length}`;
 
     el.innerHTML = recent.map(t => {
@@ -1010,6 +1351,98 @@ function renderRecentTransactions() {
             <span style="font-weight:700;color:${amtColor};white-space:nowrap;min-width:68px;text-align:right;">${amtStr}</span>
         </div>`;
     }).join('');
+}
+
+// Zelle/Venmo are peer-to-peer payments that often stand in for a real expense (Zelling a
+// roommate your half of rent, Venmo-ing someone back for dinner) but default-classify as
+// "Transfers" and get excluded from spend totals like a real account-to-account transfer.
+// This box surfaces them specifically so they can be found and, via the same classify
+// dropdown used elsewhere, manually recategorized (e.g. into "Rent") to count as real spend.
+function renderZelleVenmoRow(t, classifyOpts) {
+    const isCredit = t.amount > 0;
+    const amt = Math.abs(t.amount);
+    const amtStr = (isCredit ? '+' : '−') + '$' + fmt(amt, 2);
+    const amtColor = isCredit ? '#27ae60' : '#c0392b';
+    const catColor = CATEGORY_COLORS[t.category] || '#888';
+    const safeDesc = t.desc.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    const acct = t.accountName ? `<span style="color:#aaa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;">${t.accountName}</span>` : '';
+    // Same description, different real-world meaning is common for P2P payments (a Zelle to
+    // your roommate might be Rent most months and a Gift another month) — default to pinning
+    // just this one transaction, with an opt-in checkbox for the old "all matching" behavior.
+    return `<div class="cat-detail-row" data-desc="${safeDesc}" data-iso="${t.isoDate||''}" data-amt="${t.amount}" style="padding:7px 14px;font-size:13px;">
+        <span style="color:#999;font-size:11px;white-space:nowrap;min-width:74px;">${t.isoDate}</span>
+        <div class="cat-desc-group" style="flex:1;min-width:0;">
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.desc}">${t.desc}</span>
+            ${acct}
+            <span style="font-size:11px;background:${catColor}18;color:${catColor};border-radius:3px;padding:1px 5px;white-space:nowrap;">${t.category}</span>
+            <div class="cat-classify-wrap" onclick="event.stopPropagation()">
+                <button class="cat-classify-btn" onclick="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">Categorize</button>
+                <span style="display:none;align-items:center;gap:5px;">
+                    <select class="cat-classify-select" onchange="applyZelleVenmoCategory(this)">
+                        <option value="">— move to —</option>${classifyOpts}
+                    </select>
+                    <label style="font-size:10px;color:#888;white-space:nowrap;display:flex;align-items:center;gap:2px;cursor:pointer;"
+                           title="Also apply to every other transaction with this same description (instead of just this one)">
+                        <input type="checkbox" class="zv-apply-all-chk" style="margin:0;">all matching
+                    </label>
+                </span>
+                ${t.category !== 'Transfers' ? `<button class="cat-classify-btn" style="margin-left:4px;" title="Reset this transaction back to Transfers" onclick="resetZelleVenmoTxn(this)">↺</button>` : ''}
+            </div>
+        </div>
+        <span style="font-weight:700;color:${amtColor};white-space:nowrap;min-width:68px;text-align:right;">${amtStr}</span>
+    </div>`;
+}
+
+// Handles category selection from the Zelle/Venmo box. Defaults to pinning just the one
+// transaction (via txnOverrides); the "all matching" checkbox opts into the shared
+// keyword-based bulk rule (applyTxnCategory) used everywhere else in the app.
+function applyZelleVenmoCategory(selectEl) {
+    const val = selectEl.value;
+    if (!val) return;
+    const row = selectEl.closest('.cat-detail-row');
+    const applyAll = row.querySelector('.zv-apply-all-chk')?.checked;
+
+    if (applyAll) {
+        applyTxnCategory(selectEl);
+        return;
+    }
+
+    const desc = row.dataset.desc || '';
+    const iso  = row.dataset.iso  || '';
+    const amt  = parseFloat(row.dataset.amt) || 0;
+    txnOverrides[txnOverrideKey(iso, desc, amt)] = val;
+    reCategorizeAll();
+    saveToStorage();
+}
+
+// Undo button for a single Zelle/Venmo row — pins it back to "Transfers" (the neutral
+// default for P2P payments) regardless of whether it got moved by a per-transaction pin
+// or a bulk "all matching" keyword rule. Only affects this one transaction; a bulk rule
+// still keyword-matching other transactions is untouched (delete the keyword under the
+// category's card on the Edit tab to remove the rule itself).
+function resetZelleVenmoTxn(btn) {
+    const row  = btn.closest('.cat-detail-row');
+    const desc = row.dataset.desc || '';
+    const iso  = row.dataset.iso  || '';
+    const amt  = parseFloat(row.dataset.amt) || 0;
+    txnOverrides[txnOverrideKey(iso, desc, amt)] = 'Transfers';
+    reCategorizeAll();
+    saveToStorage();
+}
+
+function renderZelleVenmoBox() {
+    const box     = document.getElementById('zelleVenmoBox');
+    const body    = document.getElementById('zelleVenmoBody');
+    const countEl = document.getElementById('zelleVenmoCount');
+    if (!box || !body) return;
+
+    const matches = ccTransactions.filter(t => /\b(zelle|venmo)\b/i.test(t.desc || ''));
+    if (matches.length === 0) { box.style.display = 'none'; return; }
+    box.style.display = '';
+    if (countEl) countEl.textContent = `showing ${Math.min(matches.length, 200)} of ${matches.length}`;
+
+    const classifyOpts = buildClassifyOpts();
+    body.innerHTML = matches.slice(0, 200).map(t => renderZelleVenmoRow(t, classifyOpts)).join('');
 }
 
 // Parse already-split rows (with header at [0]) into normalized transaction objects
@@ -1032,7 +1465,7 @@ function parseCSVRows(rows, accountName) {
         const iso = toISO(dateRaw);
         const d   = new Date(iso);
         const valid = !isNaN(d.getTime());
-        const { cat, sub } = ccCategorizeFull(desc);
+        const { cat, sub } = categorizeTxn(desc, valid ? iso : '', amount);
         return {
             date: dateRaw, isoDate: valid ? iso : '',
             amount, desc, valid,
@@ -1069,7 +1502,7 @@ function analyzeCSV(rows) {
         t.isoDate = t.valid ? iso : '';
         t.month   = t.valid ? iso.slice(0, 7) : 'Unknown';
         t.mLabel  = t.valid ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Unknown';
-        const { cat, sub } = ccCategorizeFull(t.desc);
+        const { cat, sub } = categorizeTxn(t.desc, t.isoDate, t.amount);
         t.category    = cat;
         t.subCategory = sub;
         t.source      = 'csv';
@@ -1155,6 +1588,146 @@ function orderTxnsWithRefunds(txns) {
     });
     refunds.forEach((r, ri) => { if (!used.has(ri)) out.push(r); });
     return out;
+}
+
+/* ══════════════════════════════════════════
+   Budget Flow — SVG Arrow Drawing
+══════════════════════════════════════════ */
+const FLOW_ARROWS = [
+    { catId: 'flowCatExp',      color: '#d04040', width: 2.5, pctKey: 'exp'      },
+    { catId: 'flowCatSave',     color: '#1a7a45', width: 2.0, pctKey: 'save'     },
+    { catId: 'flowCatLeftover', color: '#888888', width: 1.5, pctKey: 'leftover' },
+];
+
+function drawFlowArrows() {
+    const svg     = document.getElementById('flowSvg');
+    const income  = document.getElementById('flowNodeIncome');
+    const wrap    = document.querySelector('.flow-horiz-wrap');
+    if (!svg || !income || !wrap) return;
+
+    const wRect = wrap.getBoundingClientRect();
+    if (wRect.width === 0) return;
+
+    svg.setAttribute('width',  wRect.width);
+    svg.setAttribute('height', wRect.height);
+
+    const iRect  = income.getBoundingClientRect();
+    const startX = iRect.right  - wRect.left;
+    const startY = iRect.top + iRect.height / 2 - wRect.top;
+
+    let defsHtml = '<defs>';
+    FLOW_ARROWS.forEach(({ catId, color }) => {
+        defsHtml += `<marker id="ah-${catId}" markerWidth="7" markerHeight="7"
+            refX="5" refY="3.5" orient="auto">
+            <polygon points="0 0, 7 3.5, 0 7" fill="${color}" opacity="0.85"/>
+          </marker>`;
+    });
+    defsHtml += '</defs>';
+
+    let pathsHtml = '';
+    FLOW_ARROWS.forEach(({ catId, color, width, pctKey }) => {
+        const box = document.getElementById(catId);
+        if (!box) return;
+        const bRect = box.getBoundingClientRect();
+        const endX  = bRect.left   - wRect.left;
+        const endY  = bRect.top + bRect.height / 2 - wRect.top;
+
+        const midX = startX + (endX - startX) * 0.55;
+        const d = `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`;
+
+        pathsHtml += `<path d="${d}" stroke="${color}" stroke-width="${width}"
+            fill="none" opacity="0.75" marker-end="url(#ah-${catId})"/>`;
+
+        // Percentage label at ~40% along the bezier curve
+        const t = 0.4;
+        const mt = 1 - t;
+        const P0x = startX, P0y = startY;
+        const P1x = midX,   P1y = startY;
+        const P2x = midX,   P2y = endY;
+        const P3x = endX,   P3y = endY;
+        const lx = mt*mt*mt*P0x + 3*mt*mt*t*P1x + 3*mt*t*t*P2x + t*t*t*P3x;
+        const ly = mt*mt*mt*P0y + 3*mt*mt*t*P1y + 3*mt*t*t*P2y + t*t*t*P3y;
+
+        const pct = _flowPcts[pctKey] || 0;
+        if (pct >= 0.5) {
+            pathsHtml += `<text x="${lx}" y="${ly - 7}"
+                text-anchor="middle" font-size="11" font-weight="700"
+                fill="${color}" stroke="#fff" stroke-width="2.5" paint-order="stroke"
+                opacity="0.95">${pct.toFixed(1)}%</text>`;
+        }
+    });
+
+    svg.innerHTML = defsHtml + pathsHtml;
+}
+
+function scheduleDrawFlowArrows() {
+    requestAnimationFrame(drawFlowArrows);
+}
+
+window.addEventListener('resize', () => { scheduleDrawFlowArrows(); scheduleDrawIdealPie(); });
+
+/* ── Ideal Pie Chart ── */
+function _piePoint(cx, cy, r, angleDeg) {
+    const rad = (angleDeg - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function drawIdealPie() {
+    const svg = document.getElementById('idealPieSvg');
+    const legend = document.getElementById('idealPieLegend');
+    if (!svg) return;
+
+    const cx = 160, cy = 160, r = 142;
+    const raw = [
+        { label: 'Expenses', pct: _flowPcts.exp,                        color: '#d04040' },
+        { label: 'Savings',  pct: _flowPcts.save,                       color: '#1a7a45' },
+        { label: 'Left Over', pct: Math.max(0, _flowPcts.leftover),     color: '#888888' },
+    ];
+    const segments = raw.filter(s => s.pct > 0.2);
+    const total = segments.reduce((s, x) => s + x.pct, 0);
+
+    if (total < 0.5) {
+        svg.innerHTML = `<text x="160" y="165" text-anchor="middle" font-size="14" fill="#bbb">No data</text>`;
+        if (legend) legend.innerHTML = '';
+        return;
+    }
+
+    let html = '';
+    let angle = 0;
+    segments.forEach(seg => {
+        const sweep = (seg.pct / total) * 360;
+        const endAngle = angle + sweep;
+        const start = _piePoint(cx, cy, r, angle);
+        const end   = _piePoint(cx, cy, r, endAngle - 0.3);
+        const large = sweep > 180 ? 1 : 0;
+        const d = `M ${cx} ${cy} L ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)} Z`;
+        html += `<path d="${d}" fill="${seg.color}" opacity="0.88" stroke="#fff" stroke-width="2"/>`;
+
+        // % label inside slice (only if slice is large enough)
+        if (sweep > 20) {
+            const mid = _piePoint(cx, cy, r * 0.62, angle + sweep / 2);
+            html += `<text x="${mid.x.toFixed(1)}" y="${mid.y.toFixed(1)}"
+                text-anchor="middle" dominant-baseline="middle"
+                font-size="18" font-weight="700" fill="#fff"
+                stroke="#0005" stroke-width="2" paint-order="stroke">${seg.pct.toFixed(1)}%</text>`;
+        }
+        angle = endAngle;
+    });
+
+    svg.innerHTML = html;
+
+    if (legend) {
+        legend.innerHTML = segments.map(s => `
+            <div class="pie-legend-row">
+                <span class="pie-legend-dot" style="background:${s.color}"></span>
+                <span class="pie-legend-name">${s.label}</span>
+                <span class="pie-legend-pct">${s.pct.toFixed(1)}%</span>
+            </div>`).join('');
+    }
+}
+
+function scheduleDrawIdealPie() {
+    requestAnimationFrame(drawIdealPie);
 }
 
 /* ══════════════════════════════════════════
@@ -1356,6 +1929,23 @@ function buildStackedBar(txns, totalAmt, axisMax, catName) {
     </div>`;
 }
 
+// Classify-dropdown options (built-in categories + sub-categories + user expense categories) —
+// shared by the category-chart detail rows and the Zelle/Venmo box.
+function buildClassifyOpts() {
+    const allClassifyCats = [
+        ...CC_CATEGORY_NAMES.filter(n => n !== 'Other' && !deletedCats.has(n)),
+        ...getUserExpenseCategories(),
+    ];
+    return allClassifyCats.map(cat => {
+        const subs = subCategories[cat] || [];
+        if (subs.length === 0) return `<option value="${cat}">${cat}</option>`;
+        return `<optgroup label="${cat}">
+            <option value="${cat}">${cat} (general)</option>
+            ${subs.map(s => `<option value="${cat}::${s}">${cat} → ${s}</option>`).join('')}
+        </optgroup>`;
+    }).join('');
+}
+
 function buildCatChart(charges, chartId, sortOverride) {
     const total   = charges.reduce((s, t) => s - t.amount, 0);
     const cats    = {};
@@ -1373,19 +1963,7 @@ function buildCatChart(charges, chartId, sortOverride) {
     const ticks   = niceAxisTicks(maxAmt);
     const axisMax = ticks[ticks.length - 1] || maxAmt;
 
-    // Build classify dropdown options (built-in categories + sub-categories + user expense categories)
-    const _allClassifyCats = [
-        ...CC_CATEGORY_NAMES.filter(n => n !== 'Other'),
-        ...getUserExpenseCategories(),
-    ];
-    const classifyOpts = _allClassifyCats.map(cat => {
-        const subs = subCategories[cat] || [];
-        if (subs.length === 0) return `<option value="${cat}">${cat}</option>`;
-        return `<optgroup label="${cat}">
-            <option value="${cat}">${cat} (general)</option>
-            ${subs.map(s => `<option value="${cat}::${s}">${cat} → ${s}</option>`).join('')}
-        </optgroup>`;
-    }).join('');
+    const classifyOpts = buildClassifyOpts();
 
     const rows = sorted.map(([name, amt], i) => {
         const detailId = `cd-${chartId}-${i}`;
@@ -1565,8 +2143,8 @@ function ccApplyDateFilter() {
 function reCategorizeAll() {
     if (ccTransactions.length === 0) return;
     // Re-categorize source arrays so source labels survive the merge
-    csvTransactions.forEach(t => { const { cat, sub } = ccCategorizeFull(t.desc); t.category = cat; t.subCategory = sub; });
-    plaidTransactions.forEach(t => { const { cat, sub } = ccCategorizeFull(t.desc); t.category = cat; t.subCategory = sub; });
+    csvTransactions.forEach(t => { const { cat, sub } = categorizeTxn(t.desc, t.isoDate, t.amount); t.category = cat; t.subCategory = sub; });
+    plaidTransactions.forEach(t => { const { cat, sub } = categorizeTxn(t.desc, t.isoDate, t.amount); t.category = cat; t.subCategory = sub; });
     mergeTxnSources();
 
     const { charges, allNonEx, totalCharged, totalReceived, sortedMonths, monthlyAvg } = computeSummary(ccTransactions);
@@ -1590,27 +2168,32 @@ function reCategorizeAll() {
     restoreOpenDetails('ccCategoryBody', openR);
     renderUnifiedRawTable();
     renderRecentTransactions();
+    renderZelleVenmoBox();
     renderCsvHistory();
 }
 
 /* ══════════════════════════════════════════
    Persistence — localStorage
 ══════════════════════════════════════════ */
-const PERSIST_INPUTS = ['base','refresher','rsu','bonusPct',
-    'titheChurchPct','titheTCBCPct','titheIVPct','titheKccPct'];
+const PERSIST_INPUTS = ['base','refresher','rsu','bonusPct','incomeCity'];
 const PERSIST_CHECKS  = ['chkFed','chkState','chkSS','chkMed','chkSDI'];
-const PERSIST_SELECTS = ['filingStatus'];
+const PERSIST_SELECTS = ['filingStatus','incomeState'];
 
 let _loadingFromStorage = false;
 
 function saveToStorage() {
     if (_loadingFromStorage) return;
     try {
-        localStorage.setItem('fc_expenses',    JSON.stringify(expenses));
-        localStorage.setItem('fc_subs',        JSON.stringify(subscriptions));
+        localStorage.setItem('fc_expenses',      JSON.stringify(expenses));
+        localStorage.setItem('fc_subs',          JSON.stringify(subscriptions));
+        localStorage.setItem('fc_ideal_savings', JSON.stringify(idealSavings));
         localStorage.setItem('fc_keywords',    JSON.stringify(categoryKeywords));
         localStorage.setItem('fc_subCats',     JSON.stringify(subCategories));
         localStorage.setItem('fc_subCatKws',   JSON.stringify(subCatKeywords));
+        localStorage.setItem('fc_deletedCats', JSON.stringify([...deletedCats]));
+        localStorage.setItem('fc_categoryRenames', JSON.stringify(categoryRenames));
+        localStorage.setItem('fc_txnOverrides', JSON.stringify(txnOverrides));
+        localStorage.setItem('fc_incomeDocs', JSON.stringify(incomeDocs));
         // CSV data is session-only — not saved to localStorage
         // Current month is always fetched live; only cache previous months
         const _currMonth = new Date().toISOString().slice(0, 7);
@@ -1625,10 +2208,79 @@ function saveToStorage() {
         vals['vestMonths'] = vestChecked;
         localStorage.setItem('fc_inputs', JSON.stringify(vals));
     } catch(e) {}
+    scheduleServerSettingsSave();
 }
+
+// Mirrors the localStorage budget settings (Monthly Ideal expenses, subs, savings,
+// category keywords) to the server so they survive localStorage being
+// cleared, a browser/device switch, or the http/https origin changing.
+let _serverSaveTimer = null;
+function scheduleServerSettingsSave() {
+    if (_loadingFromStorage) return;
+    clearTimeout(_serverSaveTimer);
+    _serverSaveTimer = setTimeout(saveSettingsToServer, 1000);
+}
+
+async function saveSettingsToServer() {
+    try {
+        const payload = {
+            expenses, subscriptions, idealSavings,
+            categoryKeywords, subCategories, subCatKeywords,
+            deletedCats: [...deletedCats],
+            categoryRenames,
+            txnOverrides,
+            inputs: JSON.parse(localStorage.getItem('fc_inputs') || '{}'),
+        };
+        await fetch(`${PLAID_SERVER}/api/save-settings`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(payload),
+        });
+    } catch (e) {}
+}
+
+async function loadSettingsFromServer() {
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/load-settings`);
+        const data = await res.json();
+        const s = data && data.settings;
+        if (!s) return;
+        const map = {
+            fc_expenses: s.expenses, fc_subs: s.subscriptions, fc_ideal_savings: s.idealSavings,
+            // fc_tithings: no longer written, but still read back for migrateLegacyTithing()
+            // against servers that still have an old settings save with this field.
+            fc_tithings: s.tithings, fc_keywords: s.categoryKeywords, fc_subCats: s.subCategories,
+            fc_subCatKws: s.subCatKeywords, fc_deletedCats: s.deletedCats, fc_inputs: s.inputs,
+            fc_categoryRenames: s.categoryRenames, fc_txnOverrides: s.txnOverrides,
+        };
+        Object.entries(map).forEach(([k, v]) => { if (v !== undefined) localStorage.setItem(k, JSON.stringify(v)); });
+        loadFromStorage();
+    } catch (e) {}
+}
+
+let _dedupeChangedOnLoad = false;
 
 function loadFromStorage() {
     _loadingFromStorage = true;
+
+    // 0. Deleted built-in categories (loaded first so later seeding can skip them)
+    try {
+        const savedDel = JSON.parse(localStorage.getItem('fc_deletedCats') || '[]');
+        deletedCats = new Set(savedDel);
+    } catch(e) { deletedCats = new Set(); }
+
+    // 0b. Built-in category renames — replay against the fresh hardcoded identity
+    // tables before anything (keyword seeding, activeBuiltins()) reads them.
+    try {
+        categoryRenames = JSON.parse(localStorage.getItem('fc_categoryRenames') || '{}');
+    } catch(e) { categoryRenames = {}; }
+    applyPersistedCategoryRenames();
+
+    // 0c. Per-transaction category pins — must load before anything categorizes a
+    // transaction (CSV parse, cached Plaid restore) so pins are already in effect.
+    try {
+        txnOverrides = JSON.parse(localStorage.getItem('fc_txnOverrides') || '{}');
+    } catch(e) { txnOverrides = {}; }
 
     // 1. Numeric inputs first so calculate() picks up correct values
     try {
@@ -1650,9 +2302,9 @@ function loadFromStorage() {
         const saved = JSON.parse(localStorage.getItem('fc_keywords') || 'null');
         if (saved) {
             categoryKeywords = saved;
-            CC_CATEGORY_NAMES.forEach(n => { if (!categoryKeywords[n]) categoryKeywords[n] = []; });
+            CC_CATEGORY_NAMES.forEach(n => { if (!deletedCats.has(n) && !categoryKeywords[n]) categoryKeywords[n] = []; });
         } else {
-            CC_CATEGORY_NAMES.forEach(n => categoryKeywords[n] = []);
+            CC_CATEGORY_NAMES.forEach(n => { if (!deletedCats.has(n)) categoryKeywords[n] = []; });
             [['weee','Groceries'],['stussy','Shopping'],['nike','Shopping'],
              ['rainbow garden','Dining Out'],['northern cuisine','Dining Out'],
              ['bangkok thai','Dining Out'],['mid summer','Dining Out']
@@ -1668,7 +2320,7 @@ function loadFromStorage() {
             // Seed defaults: Shopping gets three sub-categories
             subCategories['Shopping'] = ['Technology', 'Sports', 'Fashion'];
         }
-        CC_CATEGORY_NAMES.forEach(n => { if (!subCategories[n]) subCategories[n] = []; });
+        CC_CATEGORY_NAMES.forEach(n => { if (!deletedCats.has(n) && !subCategories[n]) subCategories[n] = []; });
     } catch(e) { CC_CATEGORY_NAMES.forEach(n => subCategories[n] = []); }
 
     try {
@@ -1698,6 +2350,10 @@ function loadFromStorage() {
                 Object.keys(NAME_MIGRATIONS).forEach(old => { delete categoryKeywords[old]; });
             }
 
+            const preDedupeCount = expenses.length;
+            dedupeExpenses();
+            if (expenses.length !== preDedupeCount) _dedupeChangedOnLoad = true;
+
             renderExpenses();
         } else { initExpenses(); }
     } catch(e) { initExpenses(); }
@@ -1712,8 +2368,31 @@ function loadFromStorage() {
         } else { initSubscriptions(); }
     } catch(e) { initSubscriptions(); }
 
+    // 5. Ideal Savings rows
+    try {
+        const saved = JSON.parse(localStorage.getItem('fc_ideal_savings') || 'null');
+        if (saved && saved.length > 0) {
+            idealSavings = saved;
+            idealSavId = idealSavings.reduce((m, s) => Math.max(m, s.id), 0);
+        }
+    } catch(e) {}
+    renderIdealSavings();
+
+    // 6. Legacy tithing migration (one-time; see migrateLegacyTithing())
+    migrateLegacyTithing();
+
+    // 7. Income documents (paystub/W-2/RSU/bonus) — server is the source of truth,
+    // this local cache just avoids a blank flash before loadIncomeDocsFromServer() resolves
+    try {
+        const saved = JSON.parse(localStorage.getItem('fc_incomeDocs') || 'null');
+        if (saved) incomeDocs = { paystub: null, w2: null, rsu: null, bonus: null, ...saved };
+    } catch(e) {}
+    renderIncomeDocsList();
+
     _loadingFromStorage = false;
     calculate();
+
+    if (_dedupeChangedOnLoad) { _dedupeChangedOnLoad = false; saveToStorage(); }
 
     // CSV data is session-only — never auto-restored. User must re-upload each session.
     // Purge any leftover CSV keys from older versions so they don't cause phantom data.
@@ -1953,11 +2632,300 @@ function clearCSV() {
 }
 
 /* ══════════════════════════════════════════
+   Income Documents — PDF upload (paystub / W-2 / RSU vest / bonus)
+══════════════════════════════════════════ */
+let incomeDocs = { paystub: null, w2: null, rsu: null, bonus: null };
+let _pendingIncomeDoc = null;
+
+const INCOME_DOC_LABELS = { paystub: 'Paystub', w2: 'W-2', rsu: 'RSU Vest', bonus: 'Bonus' };
+const INCOME_FIELD_LABELS = {
+    grossPay: 'Gross Pay', fedWithheld: 'Federal Tax Withheld', stateWithheld: 'State Tax Withheld',
+    cityWithheld: 'City/Local Tax Withheld', payDate: 'Pay Date',
+    w2Box1: 'Box 1 — Wages', w2Box2: 'Box 2 — Federal Tax Withheld', w2Box17: 'Box 17 — State Tax Withheld', w2State: 'State (from W-2)',
+    shares: 'Shares Vested', pricePerShare: 'Price per Share', vestDate: 'Vest Date',
+};
+const INCOME_TEXT_FIELDS = new Set(['payDate', 'vestDate', 'w2State']);
+
+function loadIncomePdf(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('incomeParseStatus');
+    if (statusEl) statusEl.textContent = 'Reading PDF…';
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            if (!window.pdfjsLib) throw new Error('PDF library not loaded');
+            const pdf = await window.pdfjsLib.getDocument({ data: e.target.result }).promise;
+            let fullText = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                fullText += content.items.map(it => it.str).join(' ') + '\n';
+            }
+            const override = document.getElementById('incomeDocTypeOverride')?.value || 'auto';
+            const docType = override !== 'auto' ? override : classifyIncomeDoc(fullText);
+            const fields = extractIncomeFields(fullText, docType);
+            _pendingIncomeDoc = { category: docType, fileName: file.name, rawText: fullText.slice(0, 4000), fields };
+            renderIncomeReviewForm();
+            if (statusEl) statusEl.textContent = `Detected: ${INCOME_DOC_LABELS[docType] || docType}. Review the fields below and confirm.`;
+        } catch (err) {
+            if (statusEl) statusEl.textContent = 'Could not read PDF: ' + err.message;
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function classifyIncomeDoc(text) {
+    const t = text.toLowerCase();
+    const kw = {
+        paystub: ['pay period', 'pay date', 'earnings statement', 'ytd gross', 'net pay', ' hours '],
+        w2: ['w-2', 'wage and tax statement', 'box 1', 'box 2', 'employer identification number', ' ein '],
+        rsu: ['rsu', 'restricted stock', 'vest date', 'shares released', 'vesting', 'stock plan'],
+        bonus: ['bonus payment', 'discretionary bonus', 'spot bonus', ' bonus '],
+    };
+    const scores = { paystub: 0, w2: 0, rsu: 0, bonus: 0 };
+    for (const cat in kw) kw[cat].forEach(k => { if (t.includes(k)) scores[cat]++; });
+    // A paystub that merely mentions "bonus" YTD shouldn't be misread as a bonus document
+    if (scores.paystub > 0 && scores.bonus > 0 && scores.paystub >= scores.bonus) scores.bonus = 0;
+    let best = 'paystub', bestScore = 0;
+    for (const cat in scores) { if (scores[cat] > bestScore) { bestScore = scores[cat]; best = cat; } }
+    return best;
+}
+
+// Grabs the last capture group (always the numeric one, by convention below) from the first matching pattern
+function _grabAmount(text, patterns) {
+    for (const re of patterns) {
+        const m = text.match(re);
+        if (m) {
+            const val = parseFloat(m[m.length - 1].replace(/,/g, ''));
+            if (!isNaN(val)) return val;
+        }
+    }
+    return null;
+}
+
+function _grabDate(text) {
+    const m = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+    return m ? m[1] : '';
+}
+
+function extractIncomeFields(text, docType) {
+    const money = '\\$?\\s*([\\d,]+\\.\\d{2})';
+    const fedRe   = [new RegExp('federal\\s*(income\\s*)?tax(es)?[:\\s]*' + money, 'i')];
+    const stateRe = [new RegExp('state\\s*(income\\s*)?tax(es)?[:\\s]*' + money, 'i')];
+
+    if (docType === 'w2') {
+        return {
+            w2Box1:  _grabAmount(text, [new RegExp('1\\s*wages.{0,40}?' + money, 'is')]),
+            w2Box2:  _grabAmount(text, [new RegExp('2\\s*federal.{0,40}?' + money, 'is')]),
+            w2Box17: _grabAmount(text, [new RegExp('17\\s*state.{0,40}?' + money, 'is')]),
+            w2State: (text.match(/\b([A-Z]{2})\b\s+\d{2}-?\d{7}/) || [])[1] || '',
+        };
+    }
+    if (docType === 'rsu') {
+        return {
+            shares:        _grabAmount(text, [new RegExp('shares?\\s*(released|vested)[:\\s]*([\\d,]+)', 'i')]),
+            pricePerShare: _grabAmount(text, [new RegExp('(fair market value|price per share)[:\\s]*' + money, 'i')]),
+            vestDate:      _grabDate(text),
+            fedWithheld:   _grabAmount(text, fedRe),
+            stateWithheld: _grabAmount(text, stateRe),
+        };
+    }
+    if (docType === 'bonus') {
+        return {
+            grossPay:      _grabAmount(text, [new RegExp('(gross\\s*)?bonus\\s*(amount|pay)?[:\\s]*' + money, 'i')]),
+            fedWithheld:   _grabAmount(text, fedRe),
+            stateWithheld: _grabAmount(text, stateRe),
+            payDate:       _grabDate(text),
+        };
+    }
+    // paystub (default)
+    return {
+        grossPay:      _grabAmount(text, [new RegExp('gross\\s*pay[:\\s]*' + money, 'i'), new RegExp('total\\s*gross[:\\s]*' + money, 'i')]),
+        fedWithheld:   _grabAmount(text, fedRe),
+        stateWithheld: _grabAmount(text, stateRe),
+        cityWithheld:  _grabAmount(text, [new RegExp('(city|local)\\s*tax[:\\s]*' + money, 'i')]),
+        payDate:       _grabDate(text),
+    };
+}
+
+function renderIncomeReviewForm() {
+    const box  = document.getElementById('incomeReviewBox');
+    const form = document.getElementById('incomeReviewForm');
+    const preview = document.getElementById('incomeRawTextPreview');
+    if (!_pendingIncomeDoc || !box || !form) return;
+
+    const catOptions = Object.keys(INCOME_DOC_LABELS).map(c =>
+        `<option value="${c}" ${c === _pendingIncomeDoc.category ? 'selected' : ''}>${INCOME_DOC_LABELS[c]}</option>`).join('');
+
+    const fieldRows = Object.keys(_pendingIncomeDoc.fields).map(key => {
+        const label = INCOME_FIELD_LABELS[key] || key;
+        const val = _pendingIncomeDoc.fields[key];
+        const isText = INCOME_TEXT_FIELDS.has(key);
+        return `<div class="box-row"><label>${label}</label>
+            <span class="${isText ? '' : 'money-wrap'}">${isText ? '' : '$'}<input class="val-input" type="${isText ? 'text' : 'number'}" id="incomeField_${key}" value="${val ?? ''}"></span></div>`;
+    }).join('');
+
+    form.innerHTML = `<div class="box-row"><label>Document Type</label>
+        <select id="incomeReviewCategory" onchange="renderIncomeReviewFieldsForCategory()" style="font-size:13px;border:1px solid #bbb;padding:3px 8px;font-family:Arial,sans-serif;background:#fff;">${catOptions}</select></div>` + fieldRows;
+
+    if (preview) preview.value = _pendingIncomeDoc.rawText || '';
+    box.style.display = '';
+}
+
+// If the user overrides the detected category in the review form, re-extract fields for the new category
+function renderIncomeReviewFieldsForCategory() {
+    if (!_pendingIncomeDoc) return;
+    const sel = document.getElementById('incomeReviewCategory');
+    const newCategory = sel ? sel.value : _pendingIncomeDoc.category;
+    if (newCategory === _pendingIncomeDoc.category) return;
+    _pendingIncomeDoc.category = newCategory;
+    _pendingIncomeDoc.fields = extractIncomeFields(_pendingIncomeDoc.rawText, newCategory);
+    renderIncomeReviewForm();
+}
+
+function confirmIncomeDoc() {
+    if (!_pendingIncomeDoc) return;
+    const categorySel = document.getElementById('incomeReviewCategory');
+    const category = categorySel ? categorySel.value : _pendingIncomeDoc.category;
+
+    const fields = {};
+    Object.keys(_pendingIncomeDoc.fields).forEach(key => {
+        const el = document.getElementById('incomeField_' + key);
+        if (!el) return;
+        fields[key] = INCOME_TEXT_FIELDS.has(key) ? el.value : (el.value === '' ? null : parseFloat(el.value));
+    });
+
+    const record = {
+        category,
+        fileName: _pendingIncomeDoc.fileName,
+        uploadedAt: new Date().toISOString(),
+        fields,
+        rawTextExcerpt: (_pendingIncomeDoc.rawText || '').slice(0, 2000),
+    };
+
+    incomeDocs[category] = record;
+    saveIncomeDocToServer(category, record);
+    saveToStorage();
+    cancelIncomeReview();
+    renderIncomeDocsList();
+    renderIncomeStatementRates();
+    if (document.getElementById('monthly-real')?.classList.contains('active')) renderMonthlyReal();
+}
+
+function cancelIncomeReview() {
+    _pendingIncomeDoc = null;
+    const box = document.getElementById('incomeReviewBox');
+    if (box) box.style.display = 'none';
+    const input = document.getElementById('incomeFileInput');
+    if (input) input.value = '';
+    const status = document.getElementById('incomeParseStatus');
+    if (status) status.textContent = '';
+}
+
+function renderIncomeDocsList() {
+    const el = document.getElementById('incomeDocsList');
+    if (!el) return;
+    el.innerHTML = Object.keys(INCOME_DOC_LABELS).map(cat => {
+        const doc = incomeDocs[cat];
+        if (!doc) {
+            return `<div class="box-row"><label>${INCOME_DOC_LABELS[cat]}</label><span style="color:#aaa;">No document uploaded yet</span></div>`;
+        }
+        const gross = doc.fields.grossPay ?? doc.fields.w2Box1 ?? null;
+        const grossStr = gross != null ? `$${fmt(gross, 0)} — ` : '';
+        const when = new Date(doc.uploadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        return `<div class="box-row"><label>${INCOME_DOC_LABELS[cat]}</label>
+            <span>${grossStr}updated ${when} from <em>${doc.fileName}</em>
+            <button class="cat-expand-btn" style="margin-left:8px;font-size:11px;width:auto;" onclick="deleteIncomeDoc('${cat}')">Remove</button></span></div>`;
+    }).join('');
+}
+
+function deleteIncomeDoc(category) {
+    if (!confirm(`Remove the saved ${INCOME_DOC_LABELS[category]} document?`)) return;
+    incomeDocs[category] = null;
+    saveToStorage();
+    renderIncomeDocsList();
+    renderIncomeStatementRates();
+    fetch(`${PLAID_SERVER}/api/delete-income-doc/${category}`, { method: 'DELETE' }).catch(() => {});
+    if (document.getElementById('monthly-real')?.classList.contains('active')) renderMonthlyReal();
+}
+
+function renderIncomeStatementRates() {
+    let fedGross = 0, fedWithheld = 0, stateGross = 0, stateWithheld = 0;
+    Object.values(incomeDocs).forEach(doc => {
+        if (!doc) return;
+        const f = doc.fields;
+        const gross = f.grossPay ?? f.w2Box1 ?? ((f.shares != null && f.pricePerShare != null) ? f.shares * f.pricePerShare : null);
+        const fed   = f.fedWithheld ?? f.w2Box2 ?? null;
+        const state = f.stateWithheld ?? f.w2Box17 ?? null;
+        if (gross != null && fed   != null) { fedGross   += gross; fedWithheld   += fed; }
+        if (gross != null && state != null) { stateGross += gross; stateWithheld += state; }
+    });
+
+    const fedActualEl   = document.getElementById('fedEffRateActual');
+    const stateActualEl = document.getElementById('stateEffRateActual');
+    if (fedActualEl) fedActualEl.textContent = fedGross > 0 ? `~${fmt(fedWithheld / fedGross * 100, 1)}% (from income statement)` : '';
+    if (stateActualEl) {
+        const state = document.getElementById('incomeState')?.value || '';
+        const city  = document.getElementById('incomeCity')?.value.trim() || '';
+        const label = [state, city].filter(Boolean).join(' - ');
+        stateActualEl.textContent = stateGross > 0 ? `~${fmt(stateWithheld / stateGross * 100, 1)}% (from income statement${label ? ', ' + label : ''})` : '';
+    }
+    renderIncomeBracket();
+}
+
+function getMarginalBracket(annualGross, filingStatus) {
+    const cfg = TAX_CONFIG.federal[filingStatus] || TAX_CONFIG.federal.single;
+    const taxable = Math.max(0, annualGross - cfg.stdDed);
+    for (const [cap, rate] of cfg.brackets) {
+        if (taxable <= cap) return rate;
+    }
+    return cfg.brackets[cfg.brackets.length - 1][1];
+}
+
+function renderIncomeBracket() {
+    const el = document.getElementById('incomeBracketBody');
+    if (!el) return;
+    const w2 = incomeDocs.w2;
+    const annualGross = (w2 && w2.fields.w2Box1 != null)
+        ? w2.fields.w2Box1
+        : (getVal('base') + getVal('refresher') + getVal('rsu') + getVal('base') * (getVal('bonusPct') / 100));
+    const filing = document.getElementById('filingStatus')?.value || 'single';
+    const rate = getMarginalBracket(annualGross, filing);
+    const source = (w2 && w2.fields.w2Box1 != null) ? 'your uploaded W-2' : 'the income entered on the Edit tab';
+    el.innerHTML = `Based on an estimated annual income of $${fmt(annualGross, 0)} (from ${source}), you are in the <strong>${fmt(rate * 100, 0)}%</strong> federal marginal tax bracket.`;
+}
+
+async function saveIncomeDocToServer(category, record) {
+    try {
+        await fetch(`${PLAID_SERVER}/api/save-income-doc`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ category, record }),
+        });
+    } catch (e) {}
+}
+
+async function loadIncomeDocsFromServer() {
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/load-income-docs`);
+        const data = await res.json();
+        if (!data.docs) return;
+        incomeDocs = { paystub: null, w2: null, rsu: null, bonus: null, ...data.docs };
+        saveToStorage();
+        renderIncomeDocsList();
+        renderIncomeStatementRates();
+        if (document.getElementById('monthly-real')?.classList.contains('active')) renderMonthlyReal();
+    } catch (e) {}
+}
+
+/* ══════════════════════════════════════════
    Custom category keywords — per-category columns
 ══════════════════════════════════════════ */
 const CC_CATEGORY_NAMES = [
     'Groceries','Dining Out','Gas & Auto','Shopping','Subscriptions',
-    'Health','Travel','Utilities','Entertainment','Transfers','Other'
+    'Health','Travel','Utilities','Entertainment','Tithing','Transfers','Other'
 ];
 
 // Returns expense category names the user created that aren't already a built-in category
@@ -1984,17 +2952,160 @@ function getUserExpenseCategories() {
 let categoryKeywords = {};  // { 'Groceries': ['weee', ...], 'Dining Out': [...], ... }
 let subCategories    = {};  // { 'Shopping': ['Technology', 'Sports', 'Fashion'], ... }
 let subCatKeywords   = {};  // { 'Shopping__Technology': ['apple', 'best buy'], ... }
+let deletedCats      = new Set();  // built-in categories the user removed — excluded from classify + cards
+let categoryRenames  = {}; // { originalBuiltinName: currentDisplayName } — user renames of built-in categories
 
-function renderCustomKeywords() {
-    const container = document.getElementById('editCustomKeywords');
+// Renames a built-in category's identity in the hardcoded lookup tables that aren't
+// otherwise persisted via localStorage (CC_CATEGORY_NAMES/CC_CATEGORIES/DESCRIPTION_HINTS/
+// CATEGORY_COLORS). Used both for a live rename and to replay persisted renames against
+// the pristine hardcoded defaults on every page load (since those consts reset on reload).
+function renameCategoryIdentity(oldName, newName) {
+    const nameIdx = CC_CATEGORY_NAMES.indexOf(oldName);
+    if (nameIdx !== -1) CC_CATEGORY_NAMES[nameIdx] = newName;
+    const ccDef = CC_CATEGORIES.find(c => c.name === oldName);
+    if (ccDef) ccDef.name = newName;
+    if (DESCRIPTION_HINTS[oldName]) {
+        DESCRIPTION_HINTS[newName] = DESCRIPTION_HINTS[oldName];
+        delete DESCRIPTION_HINTS[oldName];
+    }
+    if (CATEGORY_COLORS[oldName]) {
+        CATEGORY_COLORS[newName] = CATEGORY_COLORS[oldName];
+        delete CATEGORY_COLORS[oldName];
+    }
+}
+
+// Replays every persisted rename against the fresh (hardcoded-default) identity tables —
+// must run early on every load, before anything reads CC_CATEGORY_NAMES/activeBuiltins().
+function applyPersistedCategoryRenames() {
+    Object.entries(categoryRenames).forEach(([origName, currentName]) => {
+        if (origName !== currentName) renameCategoryIdentity(origName, currentName);
+    });
+}
+
+// Commits a rename of a category (built-in or custom) typed into the Edit tab. Rekeys
+// every structure keyed by category name so keywords/sub-categories/budget/auto-detection
+// all follow the new name, then reclassifies transactions so the change shows up everywhere
+// (Monthly Real, charts, badges) immediately instead of just cosmetically relabeling.
+const _catRenameTimers = new WeakMap();
+
+// Debounced auto-commit while typing — fires ~900ms after the user pauses. Restores
+// focus/cursor afterward since the commit re-renders the input into a fresh DOM node.
+function scheduleCategoryRename(inputEl) {
+    clearTimeout(_catRenameTimers.get(inputEl));
+    _catRenameTimers.set(inputEl, setTimeout(() => {
+        const hadFocus = document.activeElement === inputEl;
+        commitCategoryRename(inputEl.dataset.origName, parseInt(inputEl.dataset.expId, 10), inputEl.value);
+        if (hadFocus) {
+            const fresh = document.getElementById(inputEl.id);
+            if (fresh) { fresh.focus(); const p = fresh.value.length; fresh.setSelectionRange(p, p); }
+        }
+    }, 900));
+}
+
+// Immediate commit on blur/Enter — cancels any pending debounce so it doesn't double-fire.
+function flushCategoryRename(inputEl) {
+    clearTimeout(_catRenameTimers.get(inputEl));
+    commitCategoryRename(inputEl.dataset.origName, parseInt(inputEl.dataset.expId, 10), inputEl.value);
+}
+
+function commitCategoryRename(oldName, id, newName) {
+    newName = (newName || '').trim();
+    if (!newName || newName === oldName) { renderCategories(); return; }
+
+    const collision = expenses.some(e => e.id !== id && e.name && e.name.toLowerCase() === newName.toLowerCase());
+    if (collision) { alert(`"${newName}" is already a category name.`); renderCategories(); return; }
+
+    renameCategoryIdentity(oldName, newName);
+
+    if (categoryKeywords[oldName]) { categoryKeywords[newName] = categoryKeywords[oldName]; delete categoryKeywords[oldName]; }
+    if (subCategories[oldName])    { subCategories[newName]    = subCategories[oldName];    delete subCategories[oldName]; }
+    Object.keys(subCatKeywords).forEach(key => {
+        if (key.startsWith(oldName + '__')) {
+            subCatKeywords[newName + '__' + key.slice(oldName.length + 2)] = subCatKeywords[key];
+            delete subCatKeywords[key];
+        }
+    });
+    if (deletedCats.has(oldName)) { deletedCats.delete(oldName); deletedCats.add(newName); }
+
+    const exp = expenses.find(e => e.id === id);
+    if (exp) exp.name = newName;
+
+    // Track by original identity so re-renaming an already-renamed category updates
+    // the same entry instead of chaining (Gas & Auto -> Charging -> EV Charging).
+    // Harmless no-op for custom (non-built-in) categories, which don't need identity replay.
+    const origName = Object.keys(categoryRenames).find(k => categoryRenames[k] === oldName) || oldName;
+    categoryRenames[origName] = newName;
+
+    renderExpenses();
+    if (typeof ccTransactions !== 'undefined' && ccTransactions.length > 0) reCategorizeAll();
+    if (document.getElementById('monthly-real')?.classList.contains('active')) renderMonthlyReal();
+    saveToStorage();
+}
+
+// Built-in category names still active (not deleted by the user)
+function activeBuiltins() {
+    return CC_CATEGORY_NAMES.filter(n => !deletedCats.has(n));
+}
+
+// Removes a category card entirely: its budget row, keywords, sub-categories, and
+// (for built-ins) its auto-categorization. Affected transactions fall back to 'Other'.
+function deleteCategory(name, id) {
+    if (CC_CATEGORY_NAMES.includes(name)) deletedCats.add(name);
+    if (id != null) expenses = expenses.filter(e => e.id !== id);
+    else            expenses = expenses.filter(e => e.name !== name);
+    delete categoryKeywords[name];
+    (subCategories[name] || []).forEach(sub => delete subCatKeywords[name + '__' + sub]);
+    delete subCategories[name];
+    _expensesDirty = true;
+    renderExpenses();          // re-renders cards + Monthly Ideal list + calculate()
+    saveToStorage();
+    if (typeof ccTransactions !== 'undefined' && ccTransactions.length > 0) reCategorizeAll();
+}
+
+// Alias kept for any legacy call paths
+function renderCustomKeywords() { renderCategories(); }
+
+function renderCategories() {
+    const container = document.getElementById('editCategories');
     if (!container) return;
-    const allCategoryNames = [...CC_CATEGORY_NAMES, ...getUserExpenseCategories()];
+
+    const builtins = activeBuiltins();
+
+    // Ensure every active built-in CC category has an expense entry (creates it at $0 if missing)
+    const expByName = {};
+    expenses.forEach(e => { if (e.name) expByName[e.name] = e; });
+    builtins.forEach(name => {
+        if (!expByName[name]) {
+            const newE = { id: ++expId, name, value: 0 };
+            expenses.push(newE);
+            expByName[name] = newE;
+        }
+    });
+
+    // Order: active built-in CC categories first (fixed order), then user-added extras
+    const shownNames = new Set();
+    const ordered = [];
+    builtins.forEach(name => {
+        ordered.push({ name, expense: expByName[name], isBuiltIn: true });
+        shownNames.add(name);
+    });
+    expenses.forEach(e => {
+        // Custom categories are shown even with a blank name (not just already-named
+        // ones) so a newly-added category actually has a card with a rename box —
+        // otherwise there's no way to ever give it a name in the first place.
+        if (builtins.includes(e.name)) return;
+        if (e.name && shownNames.has(e.name)) return;
+        ordered.push({ name: e.name, expense: e, isBuiltIn: false });
+        if (e.name) shownNames.add(e.name);
+    });
+
     container.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;">
-        ${allCategoryNames.map(cat => {
-            const safe = cat.replace(/[^a-zA-Z0-9]/g, '_');
+        ${ordered.map(({ name: cat, expense: e, isBuiltIn }) => {
+            const safe = cat ? cat.replace(/[^a-zA-Z0-9]/g, '_') : ('_blank' + e.id);
             const esc  = cat.replace(/'/g, "\\'");
             const kws  = categoryKeywords[cat] || [];
             const subs = subCategories[cat]    || [];
+
             const subHtml = subs.map(sub => {
                 const subSafe = sub.replace(/[^a-zA-Z0-9]/g, '_');
                 const subEsc  = sub.replace(/'/g, "\\'");
@@ -2016,8 +3127,24 @@ function renderCustomKeywords() {
                     </div>
                 </div>`;
             }).join('');
+
+            // Renaming auto-commits ~1s after typing stops (like every other field in this
+            // app), not just on blur — a built-in rename rekeys keywords/sub-categories and
+            // reclassifies transactions, too heavy to run on every character, but requiring
+            // an explicit blur/click-away with no visible confirmation reads as broken.
+            const catAttr = cat.replace(/"/g,'&quot;');
+            const titleHtml = `<div class="kw-col-title kw-col-title-user">
+                       <input type="text" class="cat-name-input" id="cat-name-${e.id}"
+                              value="${catAttr}" data-orig-name="${catAttr}" data-exp-id="${e.id}"
+                              oninput="setExpenseName(${e.id}, this.value); scheduleCategoryRename(this)"
+                              onblur="flushCategoryRename(this)"
+                              onkeydown="if(event.key==='Enter')this.blur();"
+                              placeholder="Category name">
+                       <button class="del-btn" onclick="deleteCategory('${esc}', ${e.id})" title="Remove category">×</button>
+                   </div>`;
+
             return `<div class="kw-col">
-                <div class="kw-col-title">${cat}</div>
+                ${titleHtml}
                 ${kws.map((kw, i) => `<div class="kw-item">
                     <span>${kw}</span>
                     <button class="del-btn" onclick="deleteCustomKeyword('${esc}',${i})">×</button>
@@ -2363,7 +3490,7 @@ async function loadCsvFromServer() {
 const PLAID_SERVER = window.location.protocol === 'https:' ? 'https://localhost:3001' : 'http://localhost:3001';
 
 let _plaidLinked        = false;
-let _plaidAccounts      = [];   // cached from last showPlaidAccounts call
+let _plaidAccounts      = [];   // flattened accounts across all linked banks, cached from last showPlaidAccounts call
 let _plaidAllByAccount  = {};   // unfiltered txns per account name, from /api/all-transactions
 
 async function plaidCheckStatus() {
@@ -2380,22 +3507,16 @@ async function plaidCheckStatus() {
 
 function setPlaidUI(linked) {
     _plaidLinked = linked;
-    const btn = document.getElementById('plaidToggleBtn');
+    const btn    = document.getElementById('plaidToggleBtn');
+    const addBtn = document.getElementById('plaidAddBankBtn');
     if (linked) {
-        btn.textContent = '⏹ Unsync Bank';
-        btn.style.color = '#b00';
+        btn.style.display = 'none';
+        if (addBtn) addBtn.style.display = '';
     } else {
-        btn.textContent = 'Connect Bank';
-        btn.style.color = '';
-    }
-}
-
-// Single toggle: connect if unlinked, unlink if linked
-async function plaidToggle() {
-    if (_plaidLinked) {
-        await plaidUnlink();
-    } else {
-        await plaidConnect();
+        btn.textContent    = 'Connect Bank';
+        btn.style.color    = '';
+        btn.style.display  = '';
+        if (addBtn) addBtn.style.display = 'none';
     }
 }
 
@@ -2452,38 +3573,53 @@ function plaidResumeOAuthIfNeeded() {
     plaidConnect();
 }
 
-function showPlaidAccounts(accounts, institution) {
+// items: [{ itemId, institution, accounts }, ...] — one entry per linked bank
+function showPlaidAccounts(items) {
     const box  = document.getElementById('plaidAccountsInBox');
     const list = document.getElementById('plaidAccountsList');
     if (!box || !list) return;
-    if (!accounts || accounts.length === 0) { box.style.display = 'none'; return; }
+    const nonEmptyItems = (items || []).filter(it => it.accounts && it.accounts.length > 0);
+    if (nonEmptyItems.length === 0) { box.style.display = 'none'; return; }
     box.style.display = '';
-    _plaidAccounts = accounts;
 
-    const instEl = document.getElementById('plaidInstitutionName');
-    if (instEl) instEl.textContent = institution || 'Live Accounts';
-
+    // Flatten for toggleAcctPanel's index-based lookup, but render grouped by institution
+    _plaidAccounts = [];
     const TYPE_ICON = { credit: '💳', checking: '🏦', savings: '🏦', depository: '🏦' };
-    list.innerHTML = accounts.map((a, idx) => {
-        const color    = getAccountColor(a.name);
-        const icon     = TYPE_ICON[a.subtype] || TYPE_ICON[a.type] || '🏦';
-        const sub      = a.subtype || a.type || '';
-        const maskStr  = a.mask ? `····${a.mask}` : '';
-        const balStr   = a.balance != null ? `$${fmt(a.balance, 2)}` : '';
-        const availStr = (a.available != null && a.available !== a.balance)
-            ? ` <span style="color:#888;">(avail $${fmt(a.available,2)})</span>` : '';
+
+    list.innerHTML = nonEmptyItems.map(item => {
+        const acctsHtml = item.accounts.map(a => {
+            const idx      = _plaidAccounts.push(a) - 1;
+            const color    = getAccountColor(a.name);
+            const icon     = TYPE_ICON[a.subtype] || TYPE_ICON[a.type] || '🏦';
+            const sub      = a.subtype || a.type || '';
+            const maskStr  = a.mask ? `····${a.mask}` : '';
+            const balStr   = a.balance != null ? `$${fmt(a.balance, 2)}` : '';
+            const availStr = (a.available != null && a.available !== a.balance)
+                ? ` <span style="color:#888;">(avail $${fmt(a.available,2)})</span>` : '';
+            return `<div>
+                <div class="acct-badge" style="border-left: 4px solid ${color}; cursor:pointer;"
+                     onclick="toggleAcctPanel(${idx})">
+                    <span style="display:flex; align-items:center; gap:6px; flex:1; min-width:0;">
+                        <span style="font-size:15px;">${icon}</span>
+                        <strong style="font-size:13px;">${a.name || '—'}</strong>
+                        <span style="color:#aaa; font-size:11px;">${sub ? `(${sub})` : ''} ${maskStr}</span>
+                    </span>
+                    <span style="font-size:12px; font-weight:600; color:#1a3a6e; white-space:nowrap;">${balStr}${availStr}</span>
+                    <span id="acct-arrow-${idx}" style="font-size:9px; color:#aaa; margin-left:4px; flex-shrink:0;">▶</span>
+                </div>
+                <div id="acct-panel-${idx}" class="acct-txn-panel" style="display:none;"></div>
+            </div>`;
+        }).join('');
+
         return `<div>
-            <div class="acct-badge" style="border-left: 4px solid ${color}; cursor:pointer;"
-                 onclick="toggleAcctPanel(${idx})">
-                <span style="display:flex; align-items:center; gap:6px; flex:1; min-width:0;">
-                    <span style="font-size:15px;">${icon}</span>
-                    <strong style="font-size:13px;">${a.name || '—'}</strong>
-                    <span style="color:#aaa; font-size:11px;">${sub ? `(${sub})` : ''} ${maskStr}</span>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;">
+                <span style="font-size:11px; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.5px;">
+                    🏛 ${item.institution || 'Live Accounts'}
                 </span>
-                <span style="font-size:12px; font-weight:600; color:#1a3a6e; white-space:nowrap;">${balStr}${availStr}</span>
-                <span id="acct-arrow-${idx}" style="font-size:9px; color:#aaa; margin-left:4px; flex-shrink:0;">▶</span>
+                <span onclick="plaidUnlinkItem('${item.itemId}', '${(item.institution || 'this bank').replace(/'/g, "\\'")}')"
+                      style="font-size:11px; color:#b00; cursor:pointer;">✕ Disconnect</span>
             </div>
-            <div id="acct-panel-${idx}" class="acct-txn-panel" style="display:none;"></div>
+            <div style="display:flex; flex-direction:column; gap:2px;">${acctsHtml}</div>
         </div>`;
     }).join('');
 }
@@ -2567,7 +3703,7 @@ async function plaidSync() {
             const isoDate = t.date;
             const d = new Date(isoDate);
             const amount = -t.amount;
-            const { cat, sub } = ccCategorizeFull(t.description);
+            const { cat, sub } = categorizeTxn(t.description, isoDate, amount);
             return {
                 date:          t.date,
                 isoDate,
@@ -2612,14 +3748,15 @@ async function plaidSync() {
         renderUnifiedRawTable();
         renderTransferTriangle();
         renderRecentTransactions();
+        renderZelleVenmoBox();
         saveToStorage();
 
         // Fetch account details (with balances + institution name) separately — more reliable than inline summary
         try {
             const acctRes  = await fetch(`${PLAID_SERVER}/api/accounts`);
             const acctData = await acctRes.json();
-            if (acctData.accounts && acctData.accounts.length > 0) {
-                showPlaidAccounts(acctData.accounts, acctData.institution);
+            if (acctData.items && acctData.items.length > 0) {
+                showPlaidAccounts(acctData.items);
             }
         } catch (_) {}
 
@@ -2653,16 +3790,31 @@ async function plaidSync() {
     }
 }
 
-async function plaidUnlink() {
-    if (!confirm('Disconnect Wells Fargo? Live sync will stop (CSV data stays).')) return;
-    await fetch(`${PLAID_SERVER}/api/unlink`, { method: 'POST' });
-    // Clear Plaid transactions from memory and storage
+async function plaidUnlinkItem(itemId, institutionName) {
+    if (!confirm(`Disconnect ${institutionName}? Live sync will stop for this bank (CSV data stays).`)) return;
+    await fetch(`${PLAID_SERVER}/api/unlink`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ itemId }),
+    });
+
+    // Clear cached Plaid transactions in memory/storage; re-sync remaining linked banks (if any)
     plaidTransactions = [];
     plaidCoverStart   = null;
     localStorage.removeItem('fc_plaidTxns');
-    mergeTxnSources();  // ccTransactions reverts to CSV-only
-    setPlaidUI(false);
-    document.getElementById('plaidStatus').textContent = 'Bank disconnected';
+
+    const statusRes  = await fetch(`${PLAID_SERVER}/api/status`);
+    const statusData = await statusRes.json();
+    setPlaidUI(statusData.linked);
+
+    if (statusData.linked) {
+        plaidSync();
+    } else {
+        mergeTxnSources();  // ccTransactions reverts to CSV-only
+        const box = document.getElementById('plaidAccountsInBox');
+        if (box) box.style.display = 'none';
+        document.getElementById('plaidStatus').textContent = `${institutionName} disconnected`;
+    }
 }
 
 function toggleRawData() {
@@ -2867,6 +4019,538 @@ function renderTransferTriangle(monthKey) {
 
 
 /* ══════════════════════════════════════════
+   AI Analyze
+   Multiple independent chat sessions (tmux-style: create/switch/rename/
+   delete), each backed by /api/ai/chats/* on the server, which proxies
+   Claude and persists full message history to ~/.finance-tracker/.ai_chats.json.
+══════════════════════════════════════════ */
+let aiChats         = [];   // [{id, title, createdAt, updatedAt}] — sidebar list
+let aiActiveChatId  = null;
+let aiActiveMessages = [];  // raw Anthropic content-block messages for the open chat
+let aiSending        = false;
+
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+}
+
+// Distinct from aiRenderMessages() showing an *open* chat with no messages yet
+// ("Ask a question below to get started.") — this is for when no chat is
+// selected at all, so the input row is hidden and there's nothing to ask into.
+function aiClearActiveChat() {
+    aiActiveChatId   = null;
+    aiActiveMessages = [];
+    const conv = document.getElementById('aiConversation');
+    if (conv) conv.innerHTML = '<div class="ai-empty-state">Select a chat, or start a new one, to ask about your spending.</div>';
+    const inputRow = document.getElementById('aiInputRow');
+    if (inputRow) inputRow.style.display = 'none';
+}
+
+async function aiInit() {
+    const list = document.getElementById('aiChatList');
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats`);
+        const data = await res.json();
+        aiChats = data.chats || [];
+    } catch (e) {
+        if (list) list.innerHTML = `<div class="ai-chat-empty">Couldn't reach the server.</div>`;
+        return;
+    }
+    aiRenderChatList();
+    // If the previously-open chat got deleted (e.g. from elsewhere), fall back to the empty state.
+    if (aiActiveChatId && !aiChats.some(c => c.id === aiActiveChatId)) {
+        aiClearActiveChat();
+    }
+}
+
+function aiRenderChatList() {
+    const list = document.getElementById('aiChatList');
+    if (!list) return;
+    if (aiChats.length === 0) {
+        list.innerHTML = '<div class="ai-chat-empty">No chats yet — start one above.</div>';
+        return;
+    }
+    list.innerHTML = aiChats.map(c => `
+        <div class="ai-chat-item${c.id === aiActiveChatId ? ' active' : ''}" onclick="aiSwitchChat('${c.id}')">
+            <span class="ai-chat-item-title" spellcheck="false" ondblclick="aiStartRename(event, '${c.id}')">${escapeHtml(c.title || 'New Chat')}</span>
+            <button class="ai-chat-del-btn" onclick="aiDeleteChat(event, '${c.id}')" title="Delete chat">×</button>
+        </div>`).join('');
+}
+
+function aiStartRename(event, id) {
+    event.stopPropagation(); // don't let the dblclick's bubble also fire the row's switch-chat click
+    const span = event.target;
+    span.contentEditable = 'true';
+    span.focus();
+    // Select just the span's own text. document.execCommand('selectAll') was
+    // tried here first but selects the whole page, not just this element —
+    // the Range/Selection API is the reliable, properly-scoped way to do this.
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const original = aiChats.find(c => c.id === id)?.title || '';
+    const commit = () => {
+        span.removeEventListener('blur', commit);
+        span.removeEventListener('keydown', onKeydown);
+        span.contentEditable = 'false';
+        const newTitle = span.textContent.trim();
+        if (newTitle && newTitle !== original) aiRenameChat(id, newTitle);
+        else aiRenderChatList(); // revert to the stored title if left blank/unchanged
+    };
+    const onKeydown = (e) => {
+        if (e.key === 'Enter')  { e.preventDefault(); span.blur(); }
+        if (e.key === 'Escape') { e.preventDefault(); span.textContent = original; span.blur(); }
+    };
+    span.addEventListener('blur', commit);
+    span.addEventListener('keydown', onKeydown);
+}
+
+async function aiRenameChat(id, title) {
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats/${id}`, {
+            method:  'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ title }),
+        });
+        const data = await res.json();
+        const c = aiChats.find(x => x.id === id);
+        if (c && data.chat) c.title = data.chat.title;
+    } catch (e) {}
+    aiRenderChatList();
+}
+
+async function aiDeleteChat(event, id) {
+    event.stopPropagation(); // don't also trigger the row's switch-chat click
+    const chat = aiChats.find(c => c.id === id);
+    if (!confirm(`Delete "${chat ? chat.title : 'this chat'}"? This can't be undone.`)) return;
+    try { await fetch(`${PLAID_SERVER}/api/ai/chats/${id}`, { method: 'DELETE' }); } catch (e) {}
+    aiChats = aiChats.filter(c => c.id !== id);
+    if (aiActiveChatId === id) aiClearActiveChat();
+    aiRenderChatList();
+}
+
+async function aiCreateChat() {
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({}),
+        });
+        const data = await res.json();
+        if (!data.chat) throw new Error(data.error || 'Could not create chat');
+        aiChats.unshift(data.chat);
+        aiRenderChatList();
+        await aiSwitchChat(data.chat.id);
+        document.getElementById('aiInputBox')?.focus();
+    } catch (e) {
+        alert('Could not create a new chat: ' + e.message);
+    }
+}
+
+async function aiSwitchChat(id) {
+    if (aiSending) return; // don't abandon an in-flight stream's UI
+    aiActiveChatId = id;
+    aiRenderChatList();
+    const conv = document.getElementById('aiConversation');
+    conv.innerHTML = '<div class="ai-typing">Loading…</div>';
+    document.getElementById('aiInputRow').style.display = 'none';
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats/${id}`);
+        const data = await res.json();
+        if (!data.chat) throw new Error(data.error || 'Chat not found');
+        aiActiveMessages = data.chat.messages || [];
+    } catch (e) {
+        conv.innerHTML = `<div class="ai-msg ai-msg-error">Couldn't load this chat: ${escapeHtml(e.message)}</div>`;
+        return;
+    }
+    aiRenderMessages();
+    document.getElementById('aiInputRow').style.display = '';
+}
+
+// Flattens an Anthropic content-block array (or plain string) down to its text.
+function aiExtractText(content) {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.filter(b => b && b.type === 'text').map(b => b.text).join('\n\n');
+}
+
+function aiToolLabel(name, input) {
+    input = input || {};
+    if (name === 'get_transactions') {
+        const parts = [];
+        if (input.category) parts.push(input.category);
+        if (input.startDate || input.endDate) parts.push(`${input.startDate || '…'} → ${input.endDate || '…'}`);
+        return 'transactions' + (parts.length ? ' (' + parts.join(', ') + ')' : '');
+    }
+    if (name === 'get_category_totals') {
+        return 'category totals' + (input.startDate || input.endDate ? ` (${input.startDate || '…'} → ${input.endDate || '…'})` : '');
+    }
+    if (name === 'list_subscriptions') return 'subscriptions';
+    return name;
+}
+
+function aiRenderMessages() {
+    const conv = document.getElementById('aiConversation');
+    if (!conv) return;
+    let html = '';
+    aiActiveMessages.forEach(msg => {
+        if (msg.role === 'user') {
+            // A "user" turn that's actually just tool_result blocks is internal
+            // plumbing (the server feeding tool output back), not something the user typed.
+            const isToolResultTurn = Array.isArray(msg.content) && msg.content.length > 0 &&
+                msg.content.every(b => b && b.type === 'tool_result');
+            if (isToolResultTurn) return;
+            const text = aiExtractText(msg.content);
+            if (text.trim()) html += `<div class="ai-msg ai-msg-user">${escapeHtml(text)}</div>`;
+            return;
+        }
+        if (msg.role === 'assistant') {
+            if (Array.isArray(msg.content)) {
+                msg.content.filter(b => b && b.type === 'tool_use').forEach(b => {
+                    html += `<div class="ai-tool-note">🔎 Checked: ${escapeHtml(aiToolLabel(b.name, b.input))}</div>`;
+                });
+            }
+            const text = aiExtractText(msg.content);
+            if (text.trim()) html += `<div class="ai-msg ai-msg-assistant">${escapeHtml(text)}</div>`;
+        }
+    });
+    conv.innerHTML = html || '<div class="ai-empty-state">Ask a question below to get started.</div>';
+    conv.scrollTop = conv.scrollHeight;
+}
+
+// Same shape ccTransactions/subscriptions already have for Monthly Real —
+// reused as-is so categorization logic stays in one place (here), while the
+// server's AI tools just filter/aggregate this snapshot instead of Plaid data directly.
+function aiBuildSnapshot() {
+    return {
+        transactions: ccTransactions.map(t => ({
+            isoDate: t.isoDate, desc: t.desc, amount: t.amount,
+            category: t.category, subCategory: t.subCategory || null, accountName: t.accountName || '',
+        })),
+        subscriptions: subscriptions.map(s => ({ name: s.name, value: s.value })),
+        excludeFromSpend: [...CC_EXCLUDE_FROM_SPEND],
+    };
+}
+
+function aiHandleInputKeydown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        aiSendMessage();
+    }
+}
+
+async function aiSendMessage() {
+    if (aiSending || !aiActiveChatId) return;
+    const box = document.getElementById('aiInputBox');
+    const text = box.value.trim();
+    if (!text) return;
+
+    aiSending = true;
+    box.value = '';
+    box.disabled = true;
+    const sendBtn    = document.getElementById('aiSendBtn');
+    const newChatBtn = document.querySelector('.ai-new-chat-btn');
+    sendBtn.disabled = true;
+    if (newChatBtn) newChatBtn.disabled = true;
+
+    const conv = document.getElementById('aiConversation');
+    const emptyState = conv.querySelector('.ai-empty-state');
+    if (emptyState) emptyState.remove();
+
+    const userBubble = document.createElement('div');
+    userBubble.className = 'ai-msg ai-msg-user';
+    userBubble.textContent = text;
+    conv.appendChild(userBubble);
+
+    const typingEl = document.createElement('div');
+    typingEl.className = 'ai-typing';
+    typingEl.textContent = 'Thinking…';
+    conv.appendChild(typingEl);
+    conv.scrollTop = conv.scrollHeight;
+
+    let streamBubble = null;
+    let streamedText = '';
+    let hadError = false;
+    const chatId = aiActiveChatId;
+
+    try {
+        const res = await fetch(`${PLAID_SERVER}/api/ai/chats/${chatId}/messages`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ message: text, snapshot: aiBuildSnapshot() }),
+        });
+        if (!res.ok || !res.body) {
+            let errMsg = `Request failed (${res.status})`;
+            try { const errData = await res.json(); if (errData.error) errMsg = errData.error; } catch (_) {}
+            throw new Error(errMsg);
+        }
+
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buf.indexOf('\n\n')) !== -1) {
+                const chunk = buf.slice(0, idx);
+                buf = buf.slice(idx + 2);
+                const line = chunk.split('\n').find(l => l.startsWith('data: '));
+                if (!line) continue;
+                let payload;
+                try { payload = JSON.parse(line.slice(6)); } catch (_) { continue; }
+
+                if (payload.type === 'title') {
+                    const c = aiChats.find(x => x.id === chatId);
+                    if (c && c.title !== payload.title) { c.title = payload.title; aiRenderChatList(); }
+                } else if (payload.type === 'tool_use') {
+                    if (typingEl.isConnected) typingEl.textContent = 'Checking ' + aiToolLabel(payload.name, payload.input) + '…';
+                } else if (payload.type === 'text') {
+                    if (typingEl.isConnected) typingEl.remove();
+                    if (!streamBubble) {
+                        streamBubble = document.createElement('div');
+                        streamBubble.className = 'ai-msg ai-msg-assistant';
+                        conv.appendChild(streamBubble);
+                    }
+                    streamedText += payload.text;
+                    streamBubble.textContent = streamedText;
+                    conv.scrollTop = conv.scrollHeight;
+                } else if (payload.type === 'error') {
+                    hadError = true;
+                    if (typingEl.isConnected) typingEl.remove();
+                    const errBubble = document.createElement('div');
+                    errBubble.className = 'ai-msg ai-msg-error';
+                    errBubble.textContent = payload.message || 'Something went wrong.';
+                    conv.appendChild(errBubble);
+                    conv.scrollTop = conv.scrollHeight;
+                }
+                // 'done' needs no handling here — the chat is re-fetched below regardless.
+            }
+        }
+    } catch (err) {
+        hadError = true;
+        if (typingEl.isConnected) typingEl.remove();
+        const errBubble = document.createElement('div');
+        errBubble.className = 'ai-msg ai-msg-error';
+        errBubble.textContent = err.message || 'Something went wrong.';
+        conv.appendChild(errBubble);
+    }
+
+    aiSending = false;
+    box.disabled = false;
+    sendBtn.disabled = false;
+    if (newChatBtn) newChatBtn.disabled = false;
+
+    if (hadError) {
+        // Nothing was persisted server-side on failure (see server.js — every
+        // error path returns before touching chat.messages), so re-fetching
+        // would just wipe the error/user bubbles above with an empty history.
+        // Restore the text instead so the user can retry without retyping.
+        box.value = text;
+        box.focus();
+        return;
+    }
+    box.focus();
+
+    // Re-fetch the canonical persisted chat rather than reconstructing the
+    // exact content-block structure (tool_use turns, etc.) client-side.
+    if (aiActiveChatId === chatId) {
+        try {
+            const res  = await fetch(`${PLAID_SERVER}/api/ai/chats/${chatId}`);
+            const data = await res.json();
+            if (data.chat) {
+                aiActiveMessages = data.chat.messages || [];
+                aiRenderMessages();
+            }
+        } catch (_) {}
+        const c = aiChats.find(x => x.id === chatId);
+        if (c) { c.updatedAt = new Date().toISOString(); aiRenderChatList(); }
+    }
+}
+
+/* ══════════════════════════════════════════
+   App Settings
+══════════════════════════════════════════ */
+async function appSettingsInit() {
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/version`);
+        const data = await res.json();
+        document.getElementById('appVersion').textContent = data.version ? 'v' + data.version : '—';
+    } catch (e) {
+        document.getElementById('appVersion').textContent = '—';
+    }
+
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/changelog`);
+        const data = await res.json();
+        appRenderChangelog(data.entries || []);
+    } catch (e) {
+        document.getElementById('appChangelog').innerHTML = '<p class="as-empty">Couldn\'t load the changelog.</p>';
+    }
+
+    // Reset any stale update-check result from a previous visit to this tab.
+    const updateStatus = document.getElementById('appUpdateStatus');
+    updateStatus.textContent = '';
+    updateStatus.className = 'as-status-text';
+
+    await appRefreshAnthropicStatus();
+    await appRefreshGithubStatus();
+}
+
+function appRenderChangelog(entries) {
+    const el = document.getElementById('appChangelog');
+    if (!entries.length) { el.innerHTML = '<p class="as-empty">No changelog available.</p>'; return; }
+    el.innerHTML = entries.map(e => `
+        <div class="as-changelog-entry">
+            <div class="as-changelog-heading">
+                <span class="as-changelog-version">${escapeHtml(e.version)}</span>
+                <span class="as-changelog-date">${escapeHtml(e.date)}</span>
+            </div>
+            <ul class="as-changelog-items">${e.items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+        </div>`).join('');
+}
+
+async function appCheckForUpdates() {
+    const btn    = document.getElementById('appUpdateBtn');
+    const status = document.getElementById('appUpdateStatus');
+    btn.disabled = true;
+    status.className = 'as-status-text';
+    status.textContent = 'Checking…';
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/update-check`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Update check failed');
+        if (data.updateAvailable) {
+            status.className = 'as-status-text as-warn';
+            status.innerHTML = `New version available: <strong>${escapeHtml(data.latestVersion)}</strong>` +
+                (data.releaseUrl ? ` — <a href="${escapeHtml(data.releaseUrl)}" target="_blank" rel="noopener">View Release</a>` : '');
+        } else {
+            status.className = 'as-status-text as-ok';
+            status.textContent = `You're up to date (v${data.currentVersion}).`;
+        }
+    } catch (e) {
+        status.className = 'as-status-text as-err';
+        status.textContent = e.message;
+    }
+    btn.disabled = false;
+}
+
+// ── Claude API key ───────────────────────────────────────────────────────────
+async function appRefreshAnthropicStatus() {
+    const statusEl = document.getElementById('appAnthropicStatus');
+    const clearBtn = document.getElementById('appAnthropicClearBtn');
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/anthropic-key-status`);
+        const data = await res.json();
+        if (data.configured) {
+            statusEl.textContent = 'Key configured';
+            statusEl.className = 'as-status-text as-ok';
+            clearBtn.style.display = '';
+        } else {
+            statusEl.textContent = 'No key set';
+            statusEl.className = 'as-status-text as-warn';
+            clearBtn.style.display = 'none';
+        }
+    } catch (e) {
+        statusEl.textContent = 'Unknown';
+        statusEl.className = 'as-status-text';
+    }
+}
+
+async function appSaveAnthropicKey() {
+    const input = document.getElementById('appAnthropicKeyInput');
+    const msg   = document.getElementById('appAnthropicMsg');
+    const key   = input.value.trim();
+    if (!key) return;
+    msg.textContent = 'Validating…';
+    msg.className = 'as-msg';
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/anthropic-key`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ apiKey: key }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not save key');
+        input.value = ''; // never leave the secret sitting in the field once saved
+        msg.textContent = 'Saved.';
+        msg.className = 'as-msg as-ok';
+        await appRefreshAnthropicStatus();
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.className = 'as-msg as-err';
+    }
+}
+
+async function appClearAnthropicKey() {
+    if (!confirm('Remove the saved Claude API key? AI Analyze will stop working until you add a new one.')) return;
+    try { await fetch(`${PLAID_SERVER}/api/app/anthropic-key`, { method: 'DELETE' }); } catch (e) {}
+    await appRefreshAnthropicStatus();
+    document.getElementById('appAnthropicMsg').textContent = '';
+}
+
+// ── GitHub token ──────────────────────────────────────────────────────────────
+async function appRefreshGithubStatus() {
+    const statusEl = document.getElementById('appGithubStatus');
+    const clearBtn = document.getElementById('appGithubClearBtn');
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/github-token-status`);
+        const data = await res.json();
+        if (data.configured) {
+            statusEl.textContent = 'Token configured';
+            statusEl.className = 'as-status-text as-ok';
+            clearBtn.style.display = '';
+        } else {
+            statusEl.textContent = 'Not set';
+            statusEl.className = 'as-status-text';
+            clearBtn.style.display = 'none';
+        }
+    } catch (e) {
+        statusEl.textContent = 'Unknown';
+        statusEl.className = 'as-status-text';
+    }
+}
+
+async function appSaveGithubToken() {
+    const input = document.getElementById('appGithubKeyInput');
+    const msg   = document.getElementById('appGithubMsg');
+    const token = input.value.trim();
+    if (!token) return;
+    msg.textContent = 'Validating…';
+    msg.className = 'as-msg';
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/github-token`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ token }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not save token');
+        input.value = '';
+        msg.textContent = 'Saved.';
+        msg.className = 'as-msg as-ok';
+        await appRefreshGithubStatus();
+    } catch (e) {
+        msg.textContent = e.message;
+        msg.className = 'as-msg as-err';
+    }
+}
+
+async function appClearGithubToken() {
+    if (!confirm('Remove the saved GitHub token? Update checks will stop working until you add a new one.')) return;
+    try { await fetch(`${PLAID_SERVER}/api/app/github-token`, { method: 'DELETE' }); } catch (e) {}
+    await appRefreshGithubStatus();
+    document.getElementById('appGithubMsg').textContent = '';
+}
+
+/* ══════════════════════════════════════════
    Init
 ══════════════════════════════════════════ */
 loadFromStorage();
+loadIncomeDocsFromServer();
+loadSettingsFromServer();

@@ -2,7 +2,7 @@
 
 [![Download for Linux](https://img.shields.io/badge/Download-Linux%20AppImage-blue?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/avocado612/personal-finance-tracker/releases/latest)
 
-A personal finance tracker: budget planning, live transaction sync via [Plaid](https://plaid.com), and CSV statement import — packaged as a desktop app (Electron) that also runs as a plain local web server. Everything runs on your machine; nothing is hosted remotely.
+A personal finance tracker: budget planning, live transaction sync via [Plaid](https://plaid.com), CSV statement import, and an AI Analyze tab for asking [Claude](https://www.anthropic.com/claude) questions about your own spending — packaged as a desktop app (Electron) that also runs as a plain local web server. Everything runs on your machine; nothing is hosted remotely.
 
 This is personal software connected to real bank accounts. The steps below are written to keep your credentials and financial data from ending up somewhere they shouldn't.
 
@@ -74,7 +74,11 @@ npm start          # opens the desktop app window
 npm run server      # or: just the server, e.g. https://localhost:3001 in your own browser
 ```
 
-## 6. (Optional) Build a standalone desktop app + launcher icon
+## 6. (Optional) Set up AI Analyze
+
+Open the **App Settings** tab in the running app and paste in a [Claude API key](https://console.anthropic.com/settings/keys) — it's validated and saved locally (`~/.finance-tracker/.env`) from there, no manual file editing needed. Nothing is hardcoded anywhere in this repo, since this app is meant to be run by anyone, each with their own key. The same tab also takes an optional GitHub token (a fine-grained personal access token with read access to this repo) if you want the "Check for Updates" button to work, since the repo is private.
+
+## 7. (Optional) Build a standalone desktop app + launcher icon
 
 ```bash
 npm run dist              # builds dist/Finance Tracker-*.AppImage (Linux)
