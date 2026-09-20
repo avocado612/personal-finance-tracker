@@ -960,7 +960,7 @@ function ccCategorizeFull(description) {
 }
 
 // Per-transaction category pins — for cases where keyword-based rules are too broad
-// (e.g. "ZELLE TO JONATHAN PARK" is Rent most months but a one-off Gift another month).
+// (e.g. "ZELLE TO A ROOMMATE" is Rent most months but a one-off Gift another month).
 // Keyed by date+description+amount so it only ever matches that exact transaction, and
 // checked ahead of keyword rules in categorizeTxn() so a pin always wins over a bulk rule.
 let txnOverrides = {}; // { 'isoDate|desc|amountCents': 'Category' or 'Category::Sub' }
