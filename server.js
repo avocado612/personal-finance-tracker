@@ -44,20 +44,30 @@ function migrateLegacyDir(name) {
 
 require('dotenv').config({ path: path.join(DATA_DIR, '.env') });
 const express  = require('express');
-const cors     = require('cors');
 const https    = require('https');
 const crypto   = require('crypto');
 const { PlaidApi, PlaidEnvironments, Configuration } = require('plaid');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
-app.use(cors({ origin: '*' }));
+// No CORS middleware, deliberately: the Electron window (and a browser tab
+// hitting this server directly) always loads index.html FROM this same
+// server, so every legitimate request is same-origin already — no cross-
+// origin access is ever needed. Adding permissive CORS here would let any
+// webpage open in the user's browser read this API's responses (live bank
+// transaction data, Plaid tokens) while the app happens to be running.
 // Default 100kb body limit is too small for the AI Analyze snapshot (full
 // categorized transaction history sent with every chat message).
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(__dirname));   // serves index.html/script.js/styles.css (app assets, not user data)
 
 const PORT        = process.env.PORT || 3001;
+// Bind to localhost only — this server holds live Plaid tokens and full
+// transaction history with zero authentication, so it must never be reachable
+// from other devices on the network. Overridable for the rare case someone
+// deliberately wants LAN access (e.g. testing from a phone), but that's an
+// explicit opt-in, not the default.
+const HOST        = process.env.HOST || '127.0.0.1';
 const TOKEN_FILE    = path.join(DATA_DIR, '.plaid_token');       // legacy single-token file (migrated on startup)
 const ITEMS_FILE    = path.join(DATA_DIR, '.plaid_items.json');  // [{ item_id, access_token }, ...]
 const HISTORY_FILE  = path.join(DATA_DIR, '.plaid_history.json');
@@ -108,7 +118,12 @@ const CHANGELOG_FILE = path.join(__dirname, 'CHANGELOG.md');
 // Adds or updates a single KEY=value line in DATA_DIR/.env, preserving every
 // other line as-is. Deliberately narrow (no quoting/escaping support) — only
 // used for values we control the shape of (API keys: no newlines or `=`).
+// That's enforced here, not just assumed by callers: a value is user input
+// (e.g. the GitHub/Claude keys from App Settings) and a newline would let it
+// inject arbitrary extra KEY=value lines into .env — including ones this app
+// trusts without a restart, like GITHUB_REPO.
 function upsertEnvVar(key, value) {
+    if (/[\r\n]/.test(value)) throw new Error('Value cannot contain a newline');
     const envPath = path.join(DATA_DIR, '.env');
     let lines = [];
     // Drop blank lines on read (not just at the end) — otherwise the blank
@@ -1028,14 +1043,14 @@ function startServer() {
                     key:  fs.readFileSync(KEY_FILE),
                     cert: fs.readFileSync(CERT_FILE),
                 };
-                const server = https.createServer(httpsOptions, app).listen(PORT, () => {
+                const server = https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
                     console.log(`\nFinance server (HTTPS): https://localhost:${PORT}`);
                     console.log(`Environment:            ${process.env.PLAID_ENV || 'sandbox'}`);
                     if (IS_PROD) console.log(`Redirect URI:           ${REDIRECT_URI}`);
                     resolve({ protocol: 'https', port: PORT, server });
                 });
             } else {
-                const server = app.listen(PORT, () => {
+                const server = app.listen(PORT, HOST, () => {
                     console.log(`\nFinance server (HTTP): http://localhost:${PORT}`);
                     console.log(`Environment:           ${process.env.PLAID_ENV || 'sandbox'}`);
                     console.log(`Run 'mkcert localhost' in ${DATA_DIR} to enable HTTPS for production.`);

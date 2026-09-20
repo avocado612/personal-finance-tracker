@@ -88,9 +88,14 @@ async function createWindow() {
 
     // Plaid Link OAuth redirects (production) sometimes open a new window/tab —
     // send those to the system browser instead of spawning a second app window.
+    // Only http(s) is ever handed to shell.openExternal — other schemes (file:,
+    // custom OS URI handlers, etc.) can be abused to run local programs, and
+    // nothing this app legitimately opens externally needs anything but http(s).
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (!url.startsWith(`${protocol}://localhost:${port}`)) {
-            shell.openExternal(url);
+            let isSafe = false;
+            try { isSafe = ['http:', 'https:'].includes(new URL(url).protocol); } catch { /* not a valid URL */ }
+            if (isSafe) shell.openExternal(url);
             return { action: 'deny' };
         }
         return { action: 'allow' };
