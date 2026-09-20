@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.3.1 - 2026-09-20
+- Security fixes found in a full-codebase audit: escaped transaction/account/institution/subscription names before rendering (stored-XSS fix — payment memos are attacker-influenceable text), removed permissive CORS and bound the server to localhost only (it held live Plaid data with no authentication), rejected newlines in saved API-key/token values (env-file injection), restricted `shell.openExternal` to http(s) URLs, and updated dependencies — including `electron-builder`, whose older version shipped a real code-execution bug in the AppImage's own launcher script. See the repo's commit history for full detail.
+
 ## v1.3.0 - 2026-09-20
 - Removed the AI Analyze tab and CSV upload (History) tab from the shipped app, pending re-validation — both still exist on the `feature/ai-analyze` and `feature/csv-upload` branches and may return later. The Claude API key section in App Settings was removed along with AI Analyze (GitHub token / update checks are unaffected).
 - Expenses/Monthly Real now run on Plaid data only — the Plaid/CSV boundary marker in the monthly table is gone since there's no CSV data to draw a boundary against.
