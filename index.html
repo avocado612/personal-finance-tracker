@@ -28,6 +28,7 @@
     <div class="tab"        onclick="showTab('app-settings',    this)">App Settings</div>
     <div class="tab"        onclick="showTab('edit',            this)">Edit</div>
     <div class="sidebar-clock" id="sidebarClock"></div>
+    <div class="sidebar-version" id="sidebarVersion">—</div>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -577,7 +578,12 @@
                     <div class="box-row"><label>Version</label><span id="appVersion" class="val-display">—</span></div>
                     <div class="as-update-row">
                         <button class="add-btn" id="appUpdateBtn" onclick="appCheckForUpdates()">Check for Updates</button>
+                        <button class="add-btn" id="appUpdateDownloadBtn" onclick="appDownloadUpdate()" style="display:none;">Download &amp; Install</button>
+                        <button class="add-btn" id="appUpdateRestartBtn" onclick="appInstallUpdate()" style="display:none;">Restart &amp; Install</button>
                         <span id="appUpdateStatus" class="as-status-text"></span>
+                    </div>
+                    <div id="appUpdateProgressWrap" class="as-progress-wrap" style="display:none;">
+                        <div id="appUpdateProgressBar" class="as-progress-bar"></div>
                     </div>
                 </div>
             </div>

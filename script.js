@@ -4394,12 +4394,21 @@ async function appSettingsInit() {
     }
 
     // Reset any stale update-check result from a previous visit to this tab.
-    const updateStatus = document.getElementById('appUpdateStatus');
-    updateStatus.textContent = '';
-    updateStatus.className = 'as-status-text';
+    appResetUpdateUI();
 
     await appRefreshAnthropicStatus();
     await appRefreshGithubStatus();
+}
+
+function appResetUpdateUI() {
+    const status = document.getElementById('appUpdateStatus');
+    status.textContent = '';
+    status.className = 'as-status-text';
+    document.getElementById('appUpdateBtn').disabled = false;
+    document.getElementById('appUpdateDownloadBtn').style.display = 'none';
+    document.getElementById('appUpdateRestartBtn').style.display = 'none';
+    document.getElementById('appUpdateProgressWrap').style.display = 'none';
+    document.getElementById('appUpdateProgressBar').style.width = '0%';
 }
 
 function appRenderChangelog(entries) {
@@ -4415,12 +4424,35 @@ function appRenderChangelog(entries) {
         </div>`).join('');
 }
 
+// Desktop app builds (Electron) expose window.electronUpdater via preload.js
+// and can download + install a release in place through electron-updater.
+// A plain browser tab (`npm run server`, no Electron) has no installer to run,
+// so it falls back to the old behavior: check GitHub and link to the release.
+function appInElectron() {
+    return typeof window.electronUpdater !== 'undefined';
+}
+
 async function appCheckForUpdates() {
     const btn    = document.getElementById('appUpdateBtn');
     const status = document.getElementById('appUpdateStatus');
+    appResetUpdateUI();
     btn.disabled = true;
     status.className = 'as-status-text';
     status.textContent = 'Checking…';
+
+    if (appInElectron()) {
+        // Result arrives asynchronously via the 'available'/'not-available'/
+        // 'error' events — appHandleUpdaterEvent (wired once at page load)
+        // takes it from there.
+        const result = await window.electronUpdater.checkForUpdates();
+        if (!result.ok) {
+            status.className = 'as-status-text as-err';
+            status.textContent = result.error || 'Update check failed';
+            btn.disabled = false;
+        }
+        return;
+    }
+
     try {
         const res  = await fetch(`${PLAID_SERVER}/api/app/update-check`);
         const data = await res.json();
@@ -4438,6 +4470,90 @@ async function appCheckForUpdates() {
         status.textContent = e.message;
     }
     btn.disabled = false;
+}
+
+async function appDownloadUpdate() {
+    const downloadBtn = document.getElementById('appUpdateDownloadBtn');
+    const status       = document.getElementById('appUpdateStatus');
+    downloadBtn.disabled = true;
+    document.getElementById('appUpdateProgressWrap').style.display = '';
+    status.className = 'as-status-text';
+    status.textContent = 'Downloading…';
+    const result = await window.electronUpdater.downloadUpdate();
+    if (!result.ok) {
+        status.className = 'as-status-text as-err';
+        status.textContent = result.error || 'Download failed';
+        downloadBtn.disabled = false;
+    }
+}
+
+function appInstallUpdate() {
+    window.electronUpdater.quitAndInstall();
+}
+
+// Subscribes once (at page load) to the update lifecycle events relayed from
+// main.js. Safe to receive events while the App Settings tab isn't open —
+// they just update elements that happen to be hidden until you switch to it.
+function appWireUpdaterEvents() {
+    if (!appInElectron()) return;
+    window.electronUpdater.onEvent(appHandleUpdaterEvent);
+}
+
+function appHandleUpdaterEvent(payload) {
+    const btn          = document.getElementById('appUpdateBtn');
+    const downloadBtn  = document.getElementById('appUpdateDownloadBtn');
+    const restartBtn   = document.getElementById('appUpdateRestartBtn');
+    const status       = document.getElementById('appUpdateStatus');
+    const progressWrap = document.getElementById('appUpdateProgressWrap');
+    const progressBar  = document.getElementById('appUpdateProgressBar');
+
+    switch (payload.type) {
+        case 'checking':
+            status.className = 'as-status-text';
+            status.textContent = 'Checking…';
+            break;
+        case 'available':
+            btn.disabled = false;
+            status.className = 'as-status-text as-warn';
+            status.textContent = `New version available: v${payload.version}`;
+            downloadBtn.style.display = '';
+            downloadBtn.disabled = false;
+            break;
+        case 'not-available':
+            btn.disabled = false;
+            status.className = 'as-status-text as-ok';
+            status.textContent = `You're up to date (v${payload.version}).`;
+            break;
+        case 'progress':
+            progressWrap.style.display = '';
+            progressBar.style.width = `${Math.round(payload.percent)}%`;
+            status.className = 'as-status-text';
+            status.textContent = `Downloading… ${Math.round(payload.percent)}%`;
+            break;
+        case 'downloaded':
+            progressWrap.style.display = 'none';
+            downloadBtn.style.display = 'none';
+            restartBtn.style.display = '';
+            status.className = 'as-status-text as-ok';
+            status.textContent = `v${payload.version} downloaded — restart to install.`;
+            break;
+        case 'error':
+            btn.disabled = false;
+            downloadBtn.disabled = false;
+            status.className = 'as-status-text as-err';
+            status.textContent = payload.message || 'Update error';
+            break;
+    }
+}
+
+async function appLoadSidebarVersion() {
+    try {
+        const res  = await fetch(`${PLAID_SERVER}/api/app/version`);
+        const data = await res.json();
+        document.getElementById('sidebarVersion').textContent = data.version ? 'v' + data.version : '';
+    } catch (e) {
+        document.getElementById('sidebarVersion').textContent = '';
+    }
 }
 
 // ── Claude API key ───────────────────────────────────────────────────────────
@@ -4554,3 +4670,5 @@ async function appClearGithubToken() {
 loadFromStorage();
 loadIncomeDocsFromServer();
 loadSettingsFromServer();
+appLoadSidebarVersion();
+appWireUpdaterEvents();

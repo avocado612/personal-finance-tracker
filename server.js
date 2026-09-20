@@ -95,6 +95,12 @@ let githubToken = process.env.GITHUB_TOKEN || null;
 function setGithubToken(token) {
     githubToken = token || null;
 }
+// Read-only accessor so main.js (Electron main process) can hand the current
+// token to electron-updater when checking/downloading a release — the repo
+// is private, so the updater needs auth same as the update-check endpoint.
+function getGithubToken() {
+    return githubToken;
+}
 const APP_VERSION    = require('./package.json').version;
 const GITHUB_REPO    = process.env.GITHUB_REPO || 'avocado612/personal-finance-tracker';
 const CHANGELOG_FILE = path.join(__dirname, 'CHANGELOG.md');
@@ -1046,4 +1052,4 @@ if (require.main === module) {
     startServer();
 }
 
-module.exports = { app, startServer };
+module.exports = { app, startServer, getGithubToken, APP_VERSION, GITHUB_REPO };

@@ -78,7 +78,13 @@ npm run server      # or: just the server, e.g. https://localhost:3001 in your o
 
 Open the **App Settings** tab in the running app and paste in a [Claude API key](https://console.anthropic.com/settings/keys) — it's validated and saved locally (`~/.finance-tracker/.env`) from there, no manual file editing needed. Nothing is hardcoded anywhere in this repo, since this app is meant to be run by anyone, each with their own key. The same tab also takes an optional GitHub token (a fine-grained personal access token with read access to this repo) if you want the "Check for Updates" button to work, since the repo is private.
 
-## 7. (Optional) Build a standalone desktop app + launcher icon
+## 7. Updating
+
+If you installed the AppImage (rather than running from source), open **App Settings** in the running app and click **Check for Updates**. If a newer release exists, click **Download & Install**, wait for it to finish, then **Restart & Install** — the app replaces its own AppImage and relaunches. Nothing downloads or installs without those clicks; it never updates on its own in the background. This requires the GitHub token from step 6 (same one the update check itself uses).
+
+Running from source instead? `git pull`, `npm install`, then `npm start` — no in-app update button involved.
+
+## 8. (Optional) Build a standalone desktop app + launcher icon
 
 ```bash
 npm run dist              # builds dist/Finance Tracker-*.AppImage (Linux)
