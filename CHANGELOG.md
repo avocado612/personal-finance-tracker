@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.0 - 2026-09-20
+- Removed the AI Analyze tab and CSV upload (History) tab from the shipped app, pending re-validation — both still exist on the `feature/ai-analyze` and `feature/csv-upload` branches and may return later. The Claude API key section in App Settings was removed along with AI Analyze (GitHub token / update checks are unaffected).
+- Expenses/Monthly Real now run on Plaid data only — the Plaid/CSV boundary marker in the monthly table is gone since there's no CSV data to draw a boundary against.
+
 ## v1.2.0 - 2026-09-19
 - In-app updates — App Settings' "Check for Updates" now downloads and installs the new AppImage in place via electron-updater, instead of just linking to the GitHub release. Fully manual: nothing downloads or installs without you clicking "Download & Install" and then "Restart & Install" yourself.
 - The app version now shows at the bottom of the sidebar, not just in App Settings.

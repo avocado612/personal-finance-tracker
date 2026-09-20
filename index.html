@@ -20,11 +20,9 @@
     <div class="tab active" onclick="showTab('monthly-ideal',   this)">Monthly Ideal</div>
     <div class="tab"        onclick="showTab('monthly-real',    this)">Monthly Real</div>
     <div class="tab"        onclick="showTab('credit-card',     this)">Expenses</div>
-    <div class="tab"        onclick="showTab('history-csv',     this)">History (CSV upload)</div>
     <div class="tab"        onclick="showTab('income',          this)">Income</div>
     <div class="tab"        onclick="showTab('subscription',    this)">Subscription_List</div>
     <div class="tab"        onclick="showTab('monthly-records', this)">Monthly Records</div>
-    <div class="tab"        onclick="showTab('ai-analyze',      this)">AI Analyze</div>
     <div class="tab"        onclick="showTab('app-settings',    this)">App Settings</div>
     <div class="tab"        onclick="showTab('edit',            this)">Edit</div>
     <div class="sidebar-clock" id="sidebarClock"></div>
@@ -361,101 +359,6 @@
         </div>
     </div>
 
-    <!-- ── History (CSV Upload) ── -->
-    <div class="sheet" id="history-csv">
-        <div class="sheet-body" style="flex-direction: column;">
-
-            <!-- CSV Upload box -->
-            <div class="box" style="width:100%;">
-                <div class="box-title">Upload Account CSVs</div>
-                <div class="box-body" style="flex-direction:column; gap:10px;">
-                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                        <input type="text" id="csvAccountLabel" placeholder="Account name (e.g. WF Active Cash)" style="font-size:13px; border:1px solid #bbb; padding:4px 8px; width:220px; font-family:Arial,sans-serif;">
-                        <input type="file" id="csvFileInput" accept=".csv" onchange="loadCSV(this)">
-                    </div>
-                    <div id="loadedAccountsList" style="font-size:12px; color:#666;"></div>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <span id="csvStatus" style="font-size:12px; color:#888; flex:1;"></span>
-                        <button class="add-btn" onclick="clearCSV()" style="margin-top:0; font-size:12px; padding:3px 10px;">Clear All</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- CSV Analytics (shown after load) -->
-            <div id="csvHistAnalytics" style="display:none; width:100%; margin-top:12px;">
-                <div class="analytics-cards">
-                    <div class="summary-card">
-                        <div class="summary-label">Total Charged</div>
-                        <div class="summary-value" id="csvHistCharged">—</div>
-                    </div>
-                    <div class="summary-card" style="border-left:3px solid #3d9970;">
-                        <div class="summary-label">Total Received</div>
-                        <div class="summary-value" id="csvHistReceived" style="color:#3d9970;">—</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="summary-label">Transactions</div>
-                        <div class="summary-value" id="csvHistTxns">—</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="summary-label">Monthly Avg</div>
-                        <div class="summary-value" id="csvHistAvg">—</div>
-                    </div>
-                </div>
-                <div class="analytics-tables">
-                    <div class="analytics-left-col">
-                        <div class="box">
-                            <div class="box-title">Monthly Info</div>
-                            <div class="box-body" id="csvHistMonthlyBody"></div>
-                        </div>
-                    </div>
-                    <div class="cat-boxes-col">
-                        <div class="box">
-                            <div class="box-title" style="display:flex; justify-content:space-between; align-items:center;">
-                                <span>Expense Categories</span>
-                                <select class="cat-sort-select" onchange="setCsvHistCatSort(this.value)"
-                                    style="font-size:11px; border:1px solid #bbb; padding:2px 6px; background:#f7f7f7; cursor:pointer; font-family:Arial,sans-serif;">
-                                    <option value="amount">$ Largest First</option>
-                                    <option value="alpha">A → Z</option>
-                                </select>
-                            </div>
-                            <div class="box-body">
-                                <div class="cat-filter-row">
-                                    <span class="filter-lbl">From</span>
-                                    <input type="date" id="csvHistDateFrom" class="date-filter-input" onchange="csvHistApplyCatFilter()">
-                                    <span class="filter-lbl">to</span>
-                                    <input type="date" id="csvHistDateTo" class="date-filter-input" onchange="csvHistApplyCatFilter()">
-                                </div>
-                                <div id="csvHistCategoryBody"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Raw CSV Transaction Data -->
-            <div class="box" style="width:100%; margin-top:12px;" id="histCsvPreviewBox">
-                <div class="box-title" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleHistCsvRaw()">
-                    <span>Raw Transaction Data</span>
-                    <button class="cat-expand-btn" id="histCsvRawToggleBtn" style="font-size:13px; width:auto; color:#555;" onclick="event.stopPropagation(); toggleHistCsvRaw()">▶ Show</button>
-                </div>
-                <div id="histCsvRawContent" style="display:none; overflow-x:auto; padding:10px;">
-                    <div style="margin-bottom:8px;">
-                        <input type="text" id="histCsvSearchInput" placeholder="Search transactions…"
-                            oninput="renderCsvHistRawTable()"
-                            style="width:100%; max-width:420px; font-size:13px; border:1px solid #bbb; padding:5px 10px; font-family:Arial,sans-serif; box-sizing:border-box;">
-                        <span id="histCsvSearchCount" style="margin-left:10px; font-size:12px; color:#aaa;"></span>
-                    </div>
-                    <table id="histCsvTable" class="csv-table">
-                        <thead id="histCsvHead"></thead>
-                        <tbody id="histCsvBody"></tbody>
-                    </table>
-                    <p id="histCsvEmpty" style="color:#999; font-size:13px;">No CSV data loaded yet.</p>
-                </div>
-            </div>
-
-        </div>
-    </div>
-
     <!-- ── Income (PDF upload: paystub / W-2 / RSU vest / bonus) ── -->
     <div class="sheet" id="income">
         <div class="sheet-body" style="flex-direction:column;">
@@ -545,30 +448,6 @@
         <div class="sheet-body"><p>Monthly Records</p></div>
     </div>
 
-    <!-- ── AI Analyze ── -->
-    <div class="sheet" id="ai-analyze">
-        <div class="sheet-body ai-layout">
-            <div class="ai-sidebar">
-                <div class="ai-sidebar-header">
-                    <span>Chats</span>
-                    <button class="ai-new-chat-btn" onclick="aiCreateChat()">+ New Chat</button>
-                </div>
-                <div class="ai-chat-list" id="aiChatList"></div>
-            </div>
-            <div class="ai-main">
-                <div class="ai-conversation" id="aiConversation">
-                    <div class="ai-empty-state" id="aiEmptyState">Select a chat, or start a new one, to ask about your spending.</div>
-                </div>
-                <div class="ai-input-row" id="aiInputRow" style="display:none;">
-                    <textarea class="ai-input-textarea" id="aiInputBox" rows="2"
-                              placeholder="Ask about your spending… (Enter to send, Shift+Enter for a new line)"
-                              onkeydown="aiHandleInputKeydown(event)"></textarea>
-                    <button class="ai-send-btn" id="aiSendBtn" onclick="aiSendMessage()">Send</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- ── App Settings ── -->
     <div class="sheet" id="app-settings">
         <div class="sheet-body" style="flex-direction:column; max-width:640px;">
@@ -592,20 +471,6 @@
                 <div class="box-title">What's New</div>
                 <div class="box-body" id="appChangelog">
                     <p class="as-empty">Loading…</p>
-                </div>
-            </div>
-
-            <div class="box" style="margin-top:12px;">
-                <div class="box-title">Claude API Key</div>
-                <div class="box-body">
-                    <p class="as-help">Powers the AI Analyze tab. Get one from <span class="as-help-link">console.anthropic.com</span> — it's stored locally on this machine only, never in the app's source code.</p>
-                    <div class="box-row"><label>Status</label><span id="appAnthropicStatus" class="as-status-text">—</span></div>
-                    <div class="as-key-row">
-                        <input type="password" id="appAnthropicKeyInput" class="as-key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
-                        <button class="save-cats-btn" onclick="appSaveAnthropicKey()">Save</button>
-                        <button class="del-btn" id="appAnthropicClearBtn" onclick="appClearAnthropicKey()" title="Remove key" style="display:none;">×</button>
-                    </div>
-                    <p class="as-msg" id="appAnthropicMsg"></p>
                 </div>
             </div>
 

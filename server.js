@@ -40,7 +40,7 @@ function migrateLegacyDir(name) {
 }
 ['.env', '.plaid_token', '.plaid_items.json', '.plaid_history.json', '.budget_settings.json', 'localhost.pem', 'localhost-key.pem']
     .forEach(migrateLegacyFile);
-['.csv_data', '.income_data'].forEach(migrateLegacyDir);
+['.income_data'].forEach(migrateLegacyDir);
 
 require('dotenv').config({ path: path.join(DATA_DIR, '.env') });
 const express  = require('express');
@@ -48,49 +48,28 @@ const cors     = require('cors');
 const https    = require('https');
 const crypto   = require('crypto');
 const { PlaidApi, PlaidEnvironments, Configuration } = require('plaid');
-const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
 app.use(cors({ origin: '*' }));
-// Default 100kb body limit is too small for the AI Analyze snapshot (full
-// categorized transaction history sent with every chat message).
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '10mb' })); // default 100kb is too small for income-doc PDF uploads
 app.use(express.static(__dirname));   // serves index.html/script.js/styles.css (app assets, not user data)
 
 const PORT        = process.env.PORT || 3001;
 const TOKEN_FILE    = path.join(DATA_DIR, '.plaid_token');       // legacy single-token file (migrated on startup)
 const ITEMS_FILE    = path.join(DATA_DIR, '.plaid_items.json');  // [{ item_id, access_token }, ...]
 const HISTORY_FILE  = path.join(DATA_DIR, '.plaid_history.json');
-const CSV_DIR = path.join(DATA_DIR, '.csv_data');
-if (!fs.existsSync(CSV_DIR)) fs.mkdirSync(CSV_DIR);
 const INCOME_DIR = path.join(DATA_DIR, '.income_data');
 if (!fs.existsSync(INCOME_DIR)) fs.mkdirSync(INCOME_DIR);
 const INCOME_CATEGORIES = ['paystub', 'w2', 'rsu', 'bonus'];
 const SETTINGS_FILE = path.join(DATA_DIR, '.budget_settings.json');
-const AI_CHATS_FILE = path.join(DATA_DIR, '.ai_chats.json');
 const IS_PROD     = (process.env.PLAID_ENV || 'sandbox') === 'production';
 const REDIRECT_URI = process.env.REDIRECT_URI || `https://localhost:${PORT}`;
 
-// AI Analyze — Claude API client. Optional: only required for the AI Analyze
-// tab, everything else in the app works without it. Key is entered through
-// the App Settings tab (never hardcoded — this app is meant to be run by
-// other people, each with their own key) and stored in DATA_DIR/.env, same
-// place as the Plaid credentials. `let` because setAnthropicApiKey() below
-// re-creates it at runtime when the key is added/changed, no restart needed.
-let anthropicClient = process.env.ANTHROPIC_API_KEY
-    ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    : null;
-const AI_MODEL = 'claude-sonnet-5';
-const AI_MAX_TOOL_ITERATIONS = 8; // guards against a runaway tool-call loop
-
-function setAnthropicApiKey(key) {
-    anthropicClient = key ? new Anthropic({ apiKey: key }) : null;
-}
-
 // App Settings — version display + update check. GITHUB_TOKEN is optional
-// (only needed for the update check, since the repo is private) and, like
-// the Anthropic key, is entered through App Settings and stored in
-// DATA_DIR/.env rather than being hardcoded — same reasoning, same pattern.
+// (only needed for the update check, since the repo is private) and is
+// entered through App Settings and stored in DATA_DIR/.env rather than
+// being hardcoded — this app is meant to be run by other people, each
+// with their own token.
 let githubToken = process.env.GITHUB_TOKEN || null;
 function setGithubToken(token) {
     githubToken = token || null;
@@ -479,47 +458,6 @@ app.get('/api/all-transactions', async (req, res) => {
     }
 });
 
-// ── CSV persistence (per account) ────────────────────────────────────────────
-app.post('/api/save-csv', (req, res) => {
-    try {
-        const { rows, accountName } = req.body;
-        if (!Array.isArray(rows) || rows.length === 0)
-            return res.status(400).json({ error: 'No rows provided' });
-        const safeName = (accountName || 'default').replace(/[^a-zA-Z0-9_\- ]/g, '_');
-        const filePath = path.join(CSV_DIR, `${safeName}.json`);
-        fs.writeFileSync(filePath, JSON.stringify({ accountName: accountName || 'CSV', rows }), 'utf8');
-        console.log(`CSV saved [${safeName}]: ${rows.length - 1} rows`);
-        res.json({ ok: true, count: rows.length - 1, accountName });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.get('/api/load-csv', (req, res) => {
-    try {
-        const files = fs.readdirSync(CSV_DIR).filter(f => f.endsWith('.json'));
-        const all = files.map(f => {
-            const data = JSON.parse(fs.readFileSync(path.join(CSV_DIR, f), 'utf8'));
-            return { accountName: data.accountName, rows: data.rows };
-        });
-        console.log(`CSV load: ${all.length} account(s), ${all.reduce((s,a) => s + a.rows.length - 1, 0)} total rows`);
-        res.json({ accounts: all });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.delete('/api/delete-csv/:accountName', (req, res) => {
-    try {
-        const safeName = req.params.accountName.replace(/[^a-zA-Z0-9_\- ]/g, '_');
-        const filePath = path.join(CSV_DIR, `${safeName}.json`);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        res.json({ ok: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // ── Income document persistence (per category: paystub/w2/rsu/bonus) ────────
 app.post('/api/save-income-doc', (req, res) => {
     try {
@@ -592,290 +530,6 @@ app.get('/api/load-settings', (req, res) => {
     }
 });
 
-// ── AI Analyze — chat persistence + Claude API proxy ──────────────────────────
-// Each chat is { id, title, createdAt, updatedAt, messages: [...] }. `messages`
-// stores raw Anthropic content-block arrays (including tool_use/tool_result/
-// thinking blocks) exactly as sent/received, so a chat replays correctly across
-// server restarts — see the manual tool-use loop in the POST .../messages handler.
-function loadAiChats() {
-    try { return JSON.parse(fs.readFileSync(AI_CHATS_FILE, 'utf8')); }
-    catch { return []; }
-}
-function saveAiChats(chats) {
-    fs.writeFileSync(AI_CHATS_FILE, JSON.stringify(chats), 'utf8');
-}
-
-app.get('/api/ai/chats', (req, res) => {
-    try {
-        const chats = loadAiChats()
-            .map(c => ({ id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt }))
-            .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-        res.json({ chats });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/ai/chats', (req, res) => {
-    try {
-        const now = new Date().toISOString();
-        const chat = {
-            id:        crypto.randomUUID(),
-            title:     (req.body && req.body.title) || 'New Chat',
-            createdAt: now,
-            updatedAt: now,
-            messages:  [],
-        };
-        const chats = loadAiChats();
-        chats.push(chat);
-        saveAiChats(chats);
-        res.json({ chat });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.get('/api/ai/chats/:id', (req, res) => {
-    try {
-        const chat = loadAiChats().find(c => c.id === req.params.id);
-        if (!chat) return res.status(404).json({ error: 'No such chat' });
-        res.json({ chat });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.patch('/api/ai/chats/:id', (req, res) => {
-    try {
-        const title = (req.body && req.body.title || '').trim();
-        if (!title) return res.status(400).json({ error: 'title is required' });
-        const chats = loadAiChats();
-        const chat = chats.find(c => c.id === req.params.id);
-        if (!chat) return res.status(404).json({ error: 'No such chat' });
-        chat.title = title.slice(0, 80);
-        chat.updatedAt = new Date().toISOString();
-        saveAiChats(chats);
-        res.json({ chat });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.delete('/api/ai/chats/:id', (req, res) => {
-    try {
-        const chats = loadAiChats();
-        const next = chats.filter(c => c.id !== req.params.id);
-        if (next.length === chats.length) return res.status(404).json({ error: 'No such chat' });
-        saveAiChats(next);
-        res.json({ ok: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Tools Claude can call while answering — each operates on the `snapshot` the
-// client sends with the request (the same categorized transaction list it
-// already computes for the Monthly Real / Expenses tabs), not on Plaid data
-// directly. Keeps categorization logic in one place (script.js) while still
-// letting the model query precisely instead of stuffing everything into the prompt.
-const AI_TOOLS = [
-    {
-        name: 'get_transactions',
-        description: 'Look up individual transactions, optionally filtered by date range, category, or minimum amount. Amount is negative for money spent, positive for income/refunds. Returns at most `limit` transactions (default 50, max 200), most recent first. Use get_category_totals instead if you just need a spending total — do not sum these yourself for large ranges.',
-        input_schema: {
-            type: 'object',
-            properties: {
-                startDate: { type: 'string', description: 'Inclusive start date, YYYY-MM-DD' },
-                endDate:   { type: 'string', description: 'Inclusive end date, YYYY-MM-DD' },
-                category:  { type: 'string', description: 'Exact category name to filter by, e.g. "Dining Out" (case-insensitive)' },
-                minAmount: { type: 'number', description: 'Minimum transaction amount magnitude in dollars, e.g. 50 to find purchases of $50+' },
-                limit:     { type: 'integer', description: 'Max rows to return (default 50, max 200)' },
-            },
-            additionalProperties: false,
-        },
-    },
-    {
-        name: 'get_category_totals',
-        description: 'Total spending per category for a date range (all-time if no range given). Excludes internal transfers and credit card payments. Use this for "how much did I spend on X" style questions.',
-        input_schema: {
-            type: 'object',
-            properties: {
-                startDate: { type: 'string', description: 'Inclusive start date, YYYY-MM-DD' },
-                endDate:   { type: 'string', description: 'Inclusive end date, YYYY-MM-DD' },
-            },
-            additionalProperties: false,
-        },
-    },
-    {
-        name: 'list_subscriptions',
-        description: "List the user's tracked recurring subscriptions and their monthly cost.",
-        input_schema: { type: 'object', properties: {}, additionalProperties: false },
-    },
-];
-
-function runAiTool(name, input, snapshot) {
-    const txns    = Array.isArray(snapshot.transactions) ? snapshot.transactions : [];
-    const exclude = new Set(Array.isArray(snapshot.excludeFromSpend) ? snapshot.excludeFromSpend : []);
-
-    if (name === 'get_transactions') {
-        let rows = txns.filter(t => {
-            if (input.startDate && (!t.isoDate || t.isoDate < input.startDate)) return false;
-            if (input.endDate   && (!t.isoDate || t.isoDate > input.endDate))   return false;
-            if (input.category  && (t.category || '').toLowerCase() !== String(input.category).toLowerCase()) return false;
-            if (input.minAmount != null && Math.abs(t.amount) < input.minAmount) return false;
-            return true;
-        });
-        rows.sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''));
-        const totalMatched = rows.length;
-        const limit = Math.min(Math.max(parseInt(input.limit, 10) || 50, 1), 200);
-        rows = rows.slice(0, limit).map(t => ({
-            date: t.isoDate, description: t.desc, amount: t.amount,
-            category: t.category, subCategory: t.subCategory || null, accountName: t.accountName || '',
-        }));
-        return { totalMatched, returned: rows.length, transactions: rows };
-    }
-
-    if (name === 'get_category_totals') {
-        const filtered = txns.filter(t => {
-            if (!(t.amount < 0)) return false; // only actual spending
-            if (exclude.has(t.category)) return false;
-            if (input.startDate && (!t.isoDate || t.isoDate < input.startDate)) return false;
-            if (input.endDate   && (!t.isoDate || t.isoDate > input.endDate))   return false;
-            return true;
-        });
-        const totals = {};
-        filtered.forEach(t => { totals[t.category] = (totals[t.category] || 0) + (-t.amount); });
-        const categories = Object.entries(totals)
-            .map(([category, total]) => ({ category, total: Math.round(total * 100) / 100 }))
-            .sort((a, b) => b.total - a.total);
-        const grandTotal = Math.round(categories.reduce((s, c) => s + c.total, 0) * 100) / 100;
-        return { categories, grandTotal };
-    }
-
-    if (name === 'list_subscriptions') {
-        const subs = Array.isArray(snapshot.subscriptions) ? snapshot.subscriptions : [];
-        const monthlyTotal = Math.round(subs.reduce((s, x) => s + (x.value || 0), 0) * 100) / 100;
-        return { subscriptions: subs, monthlyTotal };
-    }
-
-    return { error: `Unknown tool: ${name}` };
-}
-
-function aiSystemPrompt() {
-    const today = new Date().toISOString().slice(0, 10);
-    return `You are a personal finance analysis assistant embedded in the user's own finance-tracking app, answering questions about their own spending data. Today's date is ${today}.
-
-Use the provided tools to look up real transaction data before answering anything about spending, categories, or subscriptions — never guess or estimate numbers. Amounts are negative for money spent and positive for income/refunds. Prefer get_category_totals over manually summing get_transactions results. Keep responses concise and concrete, grounded in the specific numbers the tools return. This data is the user's own private financial information, running entirely on their own machine — never suggest sending it anywhere else.`;
-}
-
-// Sends a new message in a chat and streams the reply back over SSE. Runs a
-// manual tool-use loop (not the SDK's beta Tool Runner, to keep this off the
-// beta surface): stream a turn, execute any tool_use blocks against the
-// request-scoped `snapshot`, feed results back, repeat until Claude stops
-// calling tools. The full content-block history (including tool_use/
-// tool_result/thinking blocks) is persisted so the next message replays
-// correctly — see shared/agent-design.md's "always append full response.content".
-app.post('/api/ai/chats/:id/messages', async (req, res) => {
-    if (!anthropicClient) {
-        return res.status(400).json({ error: 'No Claude API key set yet — add one in the App Settings tab.' });
-    }
-    const message  = req.body && req.body.message;
-    const snapshot = (req.body && typeof req.body.snapshot === 'object' && req.body.snapshot) || {};
-    if (!message || typeof message !== 'string' || !message.trim()) {
-        return res.status(400).json({ error: 'message is required' });
-    }
-
-    const chats = loadAiChats();
-    const chat  = chats.find(c => c.id === req.params.id);
-    if (!chat) return res.status(404).json({ error: 'No such chat' });
-
-    // Auto-title the chat from its first message (matches the "different chats
-    // for different topics" idea — no need to name a chat before using it).
-    if (!chat.title || chat.title === 'New Chat') {
-        const trimmed = message.trim();
-        chat.title = trimmed.length > 48 ? trimmed.slice(0, 48) + '…' : trimmed;
-    }
-
-    const messages = [...chat.messages, { role: 'user', content: message }];
-
-    res.writeHead(200, {
-        'Content-Type':  'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection':    'keep-alive',
-    });
-    // A client that navigates away or closes the app mid-stream would otherwise
-    // make res.write() throw on a destroyed socket — an unhandled 'error' event
-    // on a stream crashes the whole Node process, not just this request.
-    res.on('error', () => {});
-    let clientClosed  = false;
-    let currentStream = null;
-    req.on('close', () => {
-        clientClosed = true;
-        if (currentStream) { try { currentStream.abort(); } catch (_) {} }
-    });
-
-    const send = (obj) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
-    send({ type: 'title', title: chat.title });
-
-    try {
-        let iterations = 0;
-        while (true) {
-            iterations++;
-            if (iterations > AI_MAX_TOOL_ITERATIONS) {
-                send({ type: 'error', message: 'Stopped after too many tool calls in a row — try rephrasing the question.' });
-                break;
-            }
-
-            const stream = anthropicClient.messages.stream({
-                model:      AI_MODEL,
-                max_tokens: 4096,
-                system:     aiSystemPrompt(),
-                tools:      AI_TOOLS,
-                messages,
-            });
-            currentStream = stream;
-            stream.on('text', delta => send({ type: 'text', text: delta }));
-
-            const finalMessage = await stream.finalMessage();
-            messages.push({ role: 'assistant', content: finalMessage.content });
-
-            if (finalMessage.stop_reason === 'tool_use') {
-                const toolResults = [];
-                for (const block of finalMessage.content) {
-                    if (block.type !== 'tool_use') continue;
-                    send({ type: 'tool_use', name: block.name, input: block.input });
-                    let result;
-                    try { result = runAiTool(block.name, block.input || {}, snapshot); }
-                    catch (err) { result = { error: err.message }; }
-                    toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
-                }
-                messages.push({ role: 'user', content: toolResults });
-                continue;
-            }
-
-            if (finalMessage.stop_reason === 'refusal') {
-                send({ type: 'text', text: '_(The assistant declined to answer that.)_' });
-            } else if (finalMessage.stop_reason === 'max_tokens') {
-                send({ type: 'text', text: '\n\n_(Response was cut off — try asking a more specific question.)_' });
-            }
-            break; // end_turn, max_tokens, refusal, or anything else — this turn is done
-        }
-
-        chat.messages  = messages;
-        chat.updatedAt = new Date().toISOString();
-        saveAiChats(chats);
-
-        send({ type: 'done' });
-    } catch (err) {
-        if (!clientClosed) {
-            console.error('ai chat error:', err.response?.data || err.message || err);
-            send({ type: 'error', message: err.message || 'AI request failed' });
-        }
-    } finally {
-        if (!res.writableEnded) res.end();
-    }
-});
-
 // ── App Settings ────────────────────────────────────────────────────────────
 app.get('/api/app/version', (req, res) => {
     res.json({ version: APP_VERSION });
@@ -940,42 +594,8 @@ app.get('/api/app/update-check', async (req, res) => {
     }
 });
 
-// Credential status endpoints never echo the stored value back — write-only,
-// same as the Plaid/Anthropic pattern elsewhere in this file.
-app.get('/api/app/anthropic-key-status', (req, res) => {
-    res.json({ configured: !!anthropicClient });
-});
-
-app.post('/api/app/anthropic-key', async (req, res) => {
-    const apiKey = ((req.body && req.body.apiKey) || '').trim();
-    if (!apiKey) return res.status(400).json({ error: 'apiKey is required' });
-    try {
-        await new Anthropic({ apiKey }).models.retrieve(AI_MODEL); // cheap call, just to validate the key
-    } catch (err) {
-        if (err instanceof Anthropic.AuthenticationError) {
-            return res.status(400).json({ error: 'That key was rejected by Anthropic — double-check it and try again.' });
-        }
-        // Non-auth errors (network blip, rate limit, etc.) — the key itself may be fine, so don't block saving on those.
-    }
-    try {
-        upsertEnvVar('ANTHROPIC_API_KEY', apiKey);
-        setAnthropicApiKey(apiKey);
-        res.json({ ok: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.delete('/api/app/anthropic-key', (req, res) => {
-    try {
-        removeEnvVar('ANTHROPIC_API_KEY');
-        setAnthropicApiKey(null);
-        res.json({ ok: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
+// Credential status endpoint never echoes the stored value back — write-only,
+// same as the Plaid pattern elsewhere in this file.
 app.get('/api/app/github-token-status', (req, res) => {
     res.json({ configured: !!githubToken });
 });

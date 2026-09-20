@@ -9,7 +9,6 @@ function showTab(id, el) {
     if (id === 'subscription') renderDetectedSubscriptions();
     if (id === 'monthly-real') renderMonthlyReal();
     if (id === 'income') { renderIncomeDocsList(); renderIncomeStatementRates(); }
-    if (id === 'ai-analyze') aiInit();
     if (id === 'app-settings') appSettingsInit();
 }
 
@@ -266,6 +265,11 @@ function fmt(n, dec = 0) {
 }
 function getVal(id) { const el = document.getElementById(id); return el ? (parseFloat(el.value) || 0) : 0; }
 function setEl(id, val) { const el = document.getElementById(id); if (el) el.innerText = val; }
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+}
 
 /* ══════════════════════════════════════════
    Clock — California / Pacific time
@@ -932,16 +936,6 @@ function getAccountColor(name) {
     return _acctColorCache[name];
 }
 
-function detectColumns(headers) {
-    const norm = s => s.toLowerCase().replace(/[^a-z]/g, '');
-    const hs = headers.map(norm);
-    return {
-        dateIdx:   hs.findIndex(h => h === 'date' || h.startsWith('date')),
-        amountIdx: hs.findIndex(h => h.includes('amount') || h === 'debit' || h === 'credit'),
-        descIdx:   hs.findIndex(h => h.includes('desc') || h.includes('detail') || h.includes('memo') || h.includes('payee') || h.includes('name')),
-    };
-}
-
 // Second-pass hints: business-type words found in merchant names that signal a category
 const DESCRIPTION_HINTS = {
     'Dining Out':    ['cuisine','restaurant','eatery','kitchen','grill','bistro','cafe','deli','bbq','ramen','sushi','lounge','noodle','taqueria','cantina','trattoria','izakaya','chophouse','steakhouse','seafood','hibachi','dim sum','tapas','brasserie','boba','bubble tea','creamery','creperie','patisserie','gelateria','pizzeria','thai','chinese','japanese','korean','vietnamese','indian','mediterranean','mexican','italian','greek','peruvian','ethiopian','pho','curry','brunch','breakfast diner','waffle','pancake','bagel'],
@@ -1063,14 +1057,8 @@ let _rawSortMode = 'date';
 // 'amount' = largest first (default)  |  'alpha' = A-Z by category name
 let _catSortMode = 'amount';
 
-// Source-split state: CSV is the baseline, Plaid adds newer transactions
-let csvTransactions   = [];   // transactions parsed from CSV upload
 let plaidTransactions = [];   // ALL transactions returned by Plaid (raw, unfiltered)
-let plaidCoverStart   = null; // earliest ISO date of Plaid txns added after CSV ends
-
-// Metadata for each uploaded CSV file — persisted alongside transactions
-// Each entry: { accountName, fileName, uploadedAt (ISO string), count }
-let csvUploadMeta = [];
+let plaidCoverStart   = null; // earliest ISO date across plaidTransactions
 
 // ── Deduplication helpers ────────────────────────────────────────────────────
 
@@ -1123,8 +1111,6 @@ function remapRefundMonths() {
 }
 
 function mergeTxnSources() {
-    // CSV data is now shown separately in the History (CSV Upload) tab.
-    // The Expenses tab uses Plaid live data only.
     plaidCoverStart = plaidTransactions.length
         ? plaidTransactions.reduce((m, t) => (!m || t.isoDate < m ? t.isoDate : m), null)
         : null;
@@ -1250,55 +1236,26 @@ function toISO(s) {
     return p.length === 3 ? `${p[2]}-${p[0].padStart(2,'0')}-${p[1].padStart(2,'0')}` : s;
 }
 
-// Determine the month key of the last CSV-only month (i.e. CSV cutover boundary)
-function csvLastMonth() {
-    if (!csvTransactions.length) return null;
-    return csvTransactions
-        .filter(t => t.isoDate)
-        .reduce((m, t) => (t.isoDate > m ? t.isoDate : m), '').slice(0, 7);
-}
-
-// Builds the HTML for the Monthly Expenses table, inserting a Plaid boundary marker.
+// Builds the HTML for the Monthly Expenses table.
 function renderMonthlyTable(sortedMonths, totalCharged, charges, totalReceived) {
-    const lastCsvMonth = csvLastMonth();   // e.g. "2025-03"
-    let dividerInserted = false;
-
     // Sum total received across all months shown
     const totalRcvd = sortedMonths.reduce((s, [, m]) => s + (m.received || 0), 0);
 
     const rows = sortedMonths.map(([key, m]) => {
-        // Insert divider BEFORE the first Plaid-only month (newest month newer than CSV)
-        let divider = '';
-        if (!dividerInserted && plaidCoverStart && lastCsvMonth && key > lastCsvMonth) {
-            // still in Plaid territory — nothing yet
-        } else if (!dividerInserted && plaidCoverStart && lastCsvMonth && key <= lastCsvMonth) {
-            const fmtDate = plaidCoverStart.slice(5,7) + '/' + plaidCoverStart.slice(0,4);
-            divider = `<tr class="month-plaid-marker">
-                <td colspan="4">⬆ Live (Plaid from ${fmtDate}) &nbsp;|&nbsp; Historical (CSV) ⬇</td>
-            </tr>`;
-            dividerInserted = true;
-        }
-
-        const isPlaidMonth = plaidCoverStart && lastCsvMonth && key > lastCsvMonth;
-        const rowClass = `month-row${isPlaidMonth ? ' month-plaid' : ''}`;
         const rcvd = m.received || 0;
         // m.total is net (charges − refunds); can be negative if refunds exceed charges
         const spentDisplay = m.total >= 0
             ? `<span style="color:#c0392b;">$${fmt(m.total, 2)}</span>`
             : `<span style="color:#3d9970;" title="Net refunds this month">+$${fmt(-m.total, 2)}</span>`;
 
-        return divider + `
-            <tr class="${rowClass}" data-month="${key}" onclick="ccShowMonth('${key}', this)">
-                <td>${key.slice(5,7)}/${key.slice(0,4)}${isPlaidMonth ? ' 🔵' : ''}</td>
+        return `
+            <tr class="month-row" data-month="${key}" onclick="ccShowMonth('${key}', this)">
+                <td>${key.slice(5,7)}/${key.slice(0,4)}</td>
                 <td class="col-amt">${spentDisplay}</td>
                 <td class="col-amt" style="color:#3d9970;">${rcvd > 0 ? '$' + fmt(rcvd, 2) : '—'}</td>
                 <td class="col-pct">${m.count}</td>
             </tr>`;
     }).join('');
-
-    // If all months are Plaid (no CSV loaded yet), add a header note
-    const plaidOnlyNote = plaidCoverStart && !csvTransactions.length
-        ? `<tr class="month-plaid-marker"><td colspan="4">🔵 Live data via Plaid</td></tr>` : '';
 
     return `<table class="analytics-table">
         <thead><tr>
@@ -1308,7 +1265,6 @@ function renderMonthlyTable(sortedMonths, totalCharged, charges, totalReceived) 
             <th class="col-pct">#</th>
         </tr></thead>
         <tbody>
-            ${plaidOnlyNote}
             ${rows}
             <tr class="grand-total">
                 <td>Total</td>
@@ -1443,76 +1399,6 @@ function renderZelleVenmoBox() {
 
     const classifyOpts = buildClassifyOpts();
     body.innerHTML = matches.slice(0, 200).map(t => renderZelleVenmoRow(t, classifyOpts)).join('');
-}
-
-// Parse already-split rows (with header at [0]) into normalized transaction objects
-// tagged with the given accountName. Returns array of transaction objects.
-function parseCSVRows(rows, accountName) {
-    if (!rows || rows.length < 2) return [];
-    let { dateIdx, amountIdx, descIdx } = detectColumns(rows[0]);
-    if (amountIdx === -1) {
-        const s = rows[1];
-        amountIdx = s.findIndex(c => /^-?\d+(\.\d+)?$/.test((c||'').trim()));
-    }
-    if (descIdx  === -1) descIdx  = rows[0].length - 1;
-    if (dateIdx  === -1) dateIdx  = 0;
-
-    return rows.slice(1).map(row => {
-        const dateRaw = (row[dateIdx]  || '').trim();
-        const amount  = parseFloat((row[amountIdx] || '').replace(/[$,]/g, '')) || 0;
-        const desc    = (row[descIdx]  || row[row.length-1] || '').trim();
-        if (amount === 0) return null;
-        const iso = toISO(dateRaw);
-        const d   = new Date(iso);
-        const valid = !isNaN(d.getTime());
-        const { cat, sub } = categorizeTxn(desc, valid ? iso : '', amount);
-        return {
-            date: dateRaw, isoDate: valid ? iso : '',
-            amount, desc, valid,
-            month:  valid ? iso.slice(0, 7) : 'Unknown',
-            mLabel: valid ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Unknown',
-            category: cat, subCategory: sub,
-            source: 'csv',
-            accountName: accountName || '',
-        };
-    }).filter(Boolean);
-}
-
-function analyzeCSV(rows) {
-    if (rows.length < 2) return;
-
-    let { dateIdx, amountIdx, descIdx } = detectColumns(rows[0]);
-    if (amountIdx === -1) {
-        const s = rows[1];
-        amountIdx = s.findIndex(c => /^-?\d+(\.\d+)?$/.test(c.trim()));
-    }
-    if (descIdx === -1) descIdx = rows[0].length - 1;
-    if (dateIdx  === -1) dateIdx  = 0;
-
-    const transactions = rows.slice(1).map(row => ({
-        date:   (row[dateIdx]   || '').trim(),
-        amount: parseFloat((row[amountIdx] || '').replace(/[$,]/g, '')) || 0,
-        desc:   (row[descIdx]   || row[row.length - 1] || '').trim(),
-    })).filter(t => t.amount !== 0);
-
-    transactions.forEach(t => {
-        const iso = toISO(t.date);
-        const d   = new Date(iso);
-        t.valid   = !isNaN(d.getTime());
-        t.isoDate = t.valid ? iso : '';
-        t.month   = t.valid ? iso.slice(0, 7) : 'Unknown';
-        t.mLabel  = t.valid ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Unknown';
-        const { cat, sub } = categorizeTxn(t.desc, t.isoDate, t.amount);
-        t.category    = cat;
-        t.subCategory = sub;
-        t.source      = 'csv';
-    });
-    const csvLabel = document.getElementById('csvAccountLabel')?.value.trim() || '';
-    if (csvLabel) transactions.forEach(t => t.accountName = csvLabel);
-
-    csvTransactions = transactions;
-    mergeTxnSources();
-    rebuildCCAnalyticsUI();
 }
 
 function niceAxisTicks(max, count = 4) {
@@ -1819,10 +1705,9 @@ function openSimilarTxns(desc) {
     if (!keywords.length) return;
     _similarKeywords = keywords;
 
-    // Search Plaid + CSV, deduplicated
+    // Deduplicate matches
     const seen = new Set();
-    const all  = [...ccTransactions, ...csvTransactions];
-    _similarAllMatches = all.filter(t => {
+    _similarAllMatches = ccTransactions.filter(t => {
         const key = `${t.isoDate}|${Math.round((t.amount || 0) * 100)}|${(t.desc || '').slice(0, 30)}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -2142,8 +2027,6 @@ function ccApplyDateFilter() {
 
 function reCategorizeAll() {
     if (ccTransactions.length === 0) return;
-    // Re-categorize source arrays so source labels survive the merge
-    csvTransactions.forEach(t => { const { cat, sub } = categorizeTxn(t.desc, t.isoDate, t.amount); t.category = cat; t.subCategory = sub; });
     plaidTransactions.forEach(t => { const { cat, sub } = categorizeTxn(t.desc, t.isoDate, t.amount); t.category = cat; t.subCategory = sub; });
     mergeTxnSources();
 
@@ -2169,7 +2052,6 @@ function reCategorizeAll() {
     renderUnifiedRawTable();
     renderRecentTransactions();
     renderZelleVenmoBox();
-    renderCsvHistory();
 }
 
 /* ══════════════════════════════════════════
@@ -2394,8 +2276,8 @@ function loadFromStorage() {
 
     if (_dedupeChangedOnLoad) { _dedupeChangedOnLoad = false; saveToStorage(); }
 
-    // CSV data is session-only — never auto-restored. User must re-upload each session.
-    // Purge any leftover CSV keys from older versions so they don't cause phantom data.
+    // CSV upload was removed — purge any leftover keys from older versions so
+    // they don't cause phantom data.
     localStorage.removeItem('fc_csvTxns');
     localStorage.removeItem('fc_csvMeta');
     localStorage.removeItem('fc_csvRows');
@@ -2540,95 +2422,6 @@ function renderCCTable(rows, catByRow, dateColIdx) {
 
     table.style.display = 'table';
     empty.style.display = 'none';
-}
-
-/* ══════════════════════════════════════════
-   CSV Upload — Credit-Card tab
-══════════════════════════════════════════ */
-function loadCSV(input) {
-    const file = input.files[0];
-    if (!file) return;
-    document.getElementById('csvStatus').textContent = 'Loading…';
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const rows = parseCSV(e.target.result);
-        if (rows.length === 0) {
-            document.getElementById('csvStatus').textContent = 'File appears empty.';
-            return;
-        }
-        const label = document.getElementById('csvAccountLabel')?.value.trim() || 'CSV';
-
-        // Replace any existing data for this account name, then append new rows.
-        // This means uploading a second file keeps all other accounts intact.
-        csvTransactions = csvTransactions.filter(t => t.accountName !== label);
-        const newTxns = parseCSVRows(rows, label);
-        csvTransactions = csvTransactions.concat(newTxns);
-        csvTransactions.sort((a, b) => b.isoDate.localeCompare(a.isoDate));
-        renderCsvHistory();
-
-        // Record file metadata (replace existing entry for this account if re-uploaded)
-        csvUploadMeta = csvUploadMeta.filter(m => m.accountName !== label);
-        csvUploadMeta.push({
-            accountName: label,
-            fileName:    file.name,
-            uploadedAt:  new Date().toISOString(),
-            count:       newTxns.length,
-        });
-
-        document.getElementById('csvStatus').textContent = '';
-        // Reset inputs so the next account can be uploaded immediately
-        input.value = '';
-        document.getElementById('csvAccountLabel').value = '';
-        updateLoadedAccountsList();
-    };
-    reader.readAsText(file);
-}
-
-function parseCSV(text) {
-    const lines = text.trim().split('\n');
-    return lines.map(line => {
-        const row = [];
-        let cur = '', inQuote = false;
-        for (let i = 0; i < line.length; i++) {
-            const ch = line[i];
-            if (ch === '"') { inQuote = !inQuote; }
-            else if (ch === ',' && !inQuote) { row.push(cur.trim()); cur = ''; }
-            else { cur += ch; }
-        }
-        row.push(cur.trim());
-        return row;
-    });
-}
-
-function renderCSVTable(rows) {
-    const head = document.getElementById('csvHead');
-    const body = document.getElementById('csvBody');
-    const empty = document.getElementById('csvEmpty');
-    const table = document.getElementById('csvTable');
-
-    const headers = rows[0];
-    head.innerHTML = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
-
-    body.innerHTML = rows.slice(1).map((row, i) =>
-        '<tr class="' + (i % 2 === 0 ? 'csv-even' : 'csv-odd') + '">' +
-        headers.map((_, c) => `<td>${row[c] ?? ''}</td>`).join('') +
-        '</tr>'
-    ).join('');
-
-    table.style.display = 'table';
-    empty.style.display = 'none';
-}
-
-function clearCSV() {
-    if (!confirm('Remove all uploaded CSV accounts?')) return;
-    csvTransactions = [];
-    csvUploadMeta  = [];
-    document.getElementById('csvFileInput').value = '';
-    document.getElementById('csvAccountLabel').value = '';
-    document.getElementById('csvStatus').textContent = '';
-    updateLoadedAccountsList();
-    renderCsvHistory();
 }
 
 /* ══════════════════════════════════════════
@@ -3238,252 +3031,6 @@ function deleteSubCatKeyword(cat, sub, idx) {
 
 
 /* ══════════════════════════════════════════
-   CSV Server Persistence
-══════════════════════════════════════════ */
-function updateLoadedAccountsList() {
-    const el = document.getElementById('loadedAccountsList');
-    if (!el) return;
-    if (csvUploadMeta.length === 0) { el.innerHTML = ''; return; }
-
-    // Count actual transactions per account (in case of re-merge changes)
-    const txnCounts = new Map();
-    csvTransactions.forEach(t => {
-        if (t.accountName) txnCounts.set(t.accountName, (txnCounts.get(t.accountName) || 0) + 1);
-    });
-
-    el.innerHTML = csvUploadMeta.map(m => {
-        const color    = getAccountColor(m.accountName);
-        const safeName = m.accountName.replace(/'/g, "\\'");
-        const cnt      = txnCounts.get(m.accountName) || m.count || 0;
-        const dateStr  = new Date(m.uploadedAt).toLocaleDateString('en-US', {
-            month: 'short', day: 'numeric', year: 'numeric',
-            timeZone: 'America/Los_Angeles',
-        });
-        return `
-        <div style="display:flex;align-items:center;gap:10px;padding:5px 10px;margin-bottom:3px;background:#fafafa;border-left:3px solid ${color};border-radius:3px;">
-            <span style="font-size:12px;font-weight:700;color:${color};min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;" title="${m.accountName}">${m.accountName}</span>
-            <span style="font-size:11px;color:#888;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.fileName}">${m.fileName}</span>
-            <span style="font-size:11px;color:#aaa;white-space:nowrap;">${dateStr}</span>
-            <span style="font-size:11px;color:#666;white-space:nowrap;">${cnt.toLocaleString()} rows</span>
-            <button onclick="deleteCsvAccount('${safeName}')" title="Remove ${m.accountName}" style="background:none;border:none;color:#bbb;cursor:pointer;font-size:16px;line-height:1;padding:0 2px;flex-shrink:0;" onmouseover="this.style.color='#c00'" onmouseout="this.style.color='#bbb'">×</button>
-        </div>`;
-    }).join('');
-}
-
-function deleteCsvAccount(name) {
-    csvTransactions = csvTransactions.filter(t => t.accountName !== name);
-    csvUploadMeta   = csvUploadMeta.filter(m => m.accountName !== name);
-    updateLoadedAccountsList();
-    renderCsvHistory();
-}
-
-// Save current csvTransactions + metadata to localStorage for fast restore on next page load
-function saveCsvTransactionsLocal() {
-    try {
-        localStorage.setItem('fc_csvTxns',  JSON.stringify(csvTransactions));
-        localStorage.setItem('fc_csvMeta',  JSON.stringify(csvUploadMeta));
-    } catch(e) {}
-}
-
-/* ══════════════════════════════════════════
-   History (CSV Upload) tab rendering
-══════════════════════════════════════════ */
-let _csvHistCatSort = 'amount';
-
-function setCsvHistCatSort(val) {
-    _csvHistCatSort = val;
-    csvHistApplyCatFilter();
-}
-
-function csvHistApplyCatFilter() {
-    const from = document.getElementById('csvHistDateFrom')?.value;
-    const to   = document.getElementById('csvHistDateTo')?.value;
-    const filtered = csvTransactions.filter(t =>
-        !CC_EXCLUDE_FROM_SPEND.has(t.category) &&
-        (!from || t.isoDate >= from) &&
-        (!to   || t.isoDate <= to)
-    );
-    const el = document.getElementById('csvHistCategoryBody');
-    if (el) el.innerHTML = buildCatChart(filtered, 'h', _csvHistCatSort);
-}
-
-function renderCsvMonthlyTable(sortedMonths, totalCharged) {
-    const totalRcvd = sortedMonths.reduce((s, [, m]) => s + (m.received || 0), 0);
-    const rows = sortedMonths.map(([key, m]) => {
-        const rcvd = m.received || 0;
-        const spentDisplay = m.total >= 0
-            ? `<span style="color:#c0392b;">$${fmt(m.total, 2)}</span>`
-            : `<span style="color:#3d9970;" title="Net refunds">+$${fmt(-m.total, 2)}</span>`;
-        return `<tr class="month-row" style="cursor:default;">
-            <td>${key.slice(5,7)}/${key.slice(0,4)}</td>
-            <td class="col-amt">${spentDisplay}</td>
-            <td class="col-amt" style="color:#3d9970;">${rcvd > 0 ? '$' + fmt(rcvd, 2) : '—'}</td>
-            <td class="col-pct">${m.count}</td>
-        </tr>`;
-    }).join('');
-    return `<table class="analytics-table">
-        <thead><tr>
-            <th>Month</th>
-            <th class="col-amt" style="color:#c0392b;">Spent</th>
-            <th class="col-amt" style="color:#3d9970;">Received</th>
-            <th class="col-pct">#</th>
-        </tr></thead>
-        <tbody>
-            ${rows}
-            <tr class="grand-total">
-                <td>Total</td>
-                <td class="col-amt" style="color:#c0392b;">$${fmt(totalCharged, 2)}</td>
-                <td class="col-amt" style="color:#3d9970;">$${fmt(totalRcvd, 2)}</td>
-                <td></td>
-            </tr>
-        </tbody>
-    </table>`;
-}
-
-function renderCsvHistory() {
-    const analyticsEl = document.getElementById('csvHistAnalytics');
-    const rawBoxEl    = document.getElementById('histCsvPreviewBox');
-    if (!analyticsEl) return;
-
-    if (!csvTransactions || csvTransactions.length === 0) {
-        analyticsEl.style.display = 'none';
-        if (rawBoxEl) rawBoxEl.style.display = 'none';
-        return;
-    }
-
-    const { charges, allNonEx, totalCharged, totalReceived, sortedMonths, monthlyAvg } = computeSummary(csvTransactions);
-
-    const setH = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-    setH('csvHistCharged',  '$' + fmt(totalCharged,  2));
-    setH('csvHistReceived', '$' + fmt(totalReceived, 2));
-    setH('csvHistTxns',     csvTransactions.length + ' txns');
-    setH('csvHistAvg',      '$' + fmt(monthlyAvg,    2));
-
-    const monthBody = document.getElementById('csvHistMonthlyBody');
-    if (monthBody) monthBody.innerHTML = renderCsvMonthlyTable(sortedMonths, totalCharged);
-
-    // Set date range defaults for category chart
-    const fromEl = document.getElementById('csvHistDateFrom');
-    const toEl   = document.getElementById('csvHistDateTo');
-    if (fromEl && !fromEl.value) {
-        const allDates = csvTransactions.map(t => t.isoDate).filter(Boolean).sort();
-        if (allDates.length) {
-            fromEl.value = allDates[0];
-            toEl.value   = allDates[allDates.length - 1];
-        }
-    }
-
-    csvHistApplyCatFilter();
-    renderCsvHistRawTable();
-
-    analyticsEl.style.display = '';
-    if (rawBoxEl) rawBoxEl.style.display = '';
-}
-
-function renderCsvHistRawTable() {
-    const head  = document.getElementById('histCsvHead');
-    const body  = document.getElementById('histCsvBody');
-    const table = document.getElementById('histCsvTable');
-    const empty = document.getElementById('histCsvEmpty');
-    if (!head || !body) return;
-
-    if (!csvTransactions.length) {
-        if (table) table.style.display = 'none';
-        if (empty) empty.style.display = '';
-        return;
-    }
-
-    const searchQ = (document.getElementById('histCsvSearchInput')?.value || '').trim().toLowerCase();
-    let txns = searchQ
-        ? csvTransactions.filter(t =>
-            (t.desc || '').toLowerCase().includes(searchQ) ||
-            (t.category || '').toLowerCase().includes(searchQ) ||
-            (t.accountName || '').toLowerCase().includes(searchQ) ||
-            (t.isoDate || '').includes(searchQ))
-        : [...csvTransactions];
-
-    const countEl = document.getElementById('histCsvSearchCount');
-    if (countEl) countEl.textContent = searchQ ? `${txns.length} of ${csvTransactions.length} transactions` : '';
-
-    head.innerHTML = `<tr>
-        <th>Date</th><th>Description</th><th>Amount</th><th>Category</th><th>Account</th>
-    </tr>`;
-    body.innerHTML = txns.map((t, i) => {
-        const isPos  = t.amount > 0;
-        const amtStr = isPos
-            ? `<span style="color:#27ae60;">+$${fmt(t.amount, 2)}</span>`
-            : `$${fmt(-t.amount, 2)}`;
-        return `<tr class="${i % 2 === 0 ? 'csv-even' : 'csv-odd'}">
-            <td>${t.isoDate || t.date || ''}</td>
-            <td>${t.desc || ''}</td>
-            <td style="white-space:nowrap;">${amtStr}</td>
-            <td>${t.category || ''}</td>
-            <td>${t.accountName || ''}</td>
-        </tr>`;
-    }).join('');
-
-    if (table) table.style.display = 'table';
-    if (empty) empty.style.display = 'none';
-}
-
-function toggleHistCsvRaw() {
-    const content = document.getElementById('histCsvRawContent');
-    const btn     = document.getElementById('histCsvRawToggleBtn');
-    if (!content) return;
-    const isHidden = content.style.display === 'none';
-    content.style.display = isHidden ? '' : 'none';
-    if (btn) btn.textContent = isHidden ? '▼ Hide' : '▶ Show';
-    if (isHidden) renderCsvHistRawTable();
-}
-
-async function saveCsvToServer(rows, accountName) {
-    try {
-        await fetch(`${PLAID_SERVER}/api/save-csv`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ rows, accountName: accountName || 'CSV' }),
-        });
-    } catch (e) {}
-}
-
-async function loadCsvFromServer() {
-    try {
-        const res  = await fetch(`${PLAID_SERVER}/api/load-csv`);
-        const data = await res.json();
-        if (!data.accounts || data.accounts.length === 0) return;
-
-        // Clear existing CSV transactions before re-loading all
-        csvTransactions = [];
-        csvUploadMeta   = [];
-
-        data.accounts.forEach(({ accountName, rows }) => {
-            if (!rows || rows.length < 2) return;
-            const parsed = parseCSVRows(rows, accountName);
-            csvTransactions = csvTransactions.concat(parsed);
-            // Rebuild metadata — no filename available, mark as "server restore"
-            csvUploadMeta.push({
-                accountName,
-                fileName:   'restored from server',
-                uploadedAt: new Date().toISOString(),
-                count:      parsed.length,
-            });
-        });
-
-        if (csvTransactions.length === 0) return;
-
-        // Sort newest-first
-        csvTransactions.sort((a, b) => b.isoDate.localeCompare(a.isoDate));
-        renderCsvHistory();
-        saveCsvTransactionsLocal();
-
-        const totalRows = data.accounts.reduce((s, a) => s + (a.rows.length - 1), 0);
-        const statusEl = document.getElementById('csvStatus');
-        if (statusEl) statusEl.textContent = `${totalRows} rows restored (${data.accounts.length} account${data.accounts.length !== 1 ? 's' : ''})`;
-        updateLoadedAccountsList();
-    } catch (e) {}
-}
-
-/* ══════════════════════════════════════════
    Plaid Bank Sync
 ══════════════════════════════════════════ */
 // Use HTTPS when served over HTTPS (production), HTTP for sandbox file:// access
@@ -3767,11 +3314,8 @@ async function plaidSync() {
             if (allData.byAccount) _plaidAllByAccount = allData.byAccount;
         } catch (_) {}
 
-        const csvEndStr = csvTransactions.length
-            ? ` · CSV ends ${csvLastMonth()?.slice(5,7)}/${csvLastMonth()?.slice(0,4)}`
-            : '';
         const newStr = (data.newCount != null && data.newCount > 0) ? ` (+${data.newCount} new)` : '';
-        statusEl.textContent = `${data.count} txns${newStr}${csvEndStr}`;
+        statusEl.textContent = `${data.count} txns${newStr}`;
 
         // Show last-synced timestamp with timezone abbreviation
         const syncTime = new Date();
@@ -3791,7 +3335,7 @@ async function plaidSync() {
 }
 
 async function plaidUnlinkItem(itemId, institutionName) {
-    if (!confirm(`Disconnect ${institutionName}? Live sync will stop for this bank (CSV data stays).`)) return;
+    if (!confirm(`Disconnect ${institutionName}? Live sync will stop for this bank.`)) return;
     await fetch(`${PLAID_SERVER}/api/unlink`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3810,7 +3354,7 @@ async function plaidUnlinkItem(itemId, institutionName) {
     if (statusData.linked) {
         plaidSync();
     } else {
-        mergeTxnSources();  // ccTransactions reverts to CSV-only
+        mergeTxnSources();  // ccTransactions is now empty
         const box = document.getElementById('plaidAccountsInBox');
         if (box) box.style.display = 'none';
         document.getElementById('plaidStatus').textContent = `${institutionName} disconnected`;
@@ -4018,360 +3562,6 @@ function renderTransferTriangle(monthKey) {
 }
 
 
-/* ══════════════════════════════════════════
-   AI Analyze
-   Multiple independent chat sessions (tmux-style: create/switch/rename/
-   delete), each backed by /api/ai/chats/* on the server, which proxies
-   Claude and persists full message history to ~/.finance-tracker/.ai_chats.json.
-══════════════════════════════════════════ */
-let aiChats         = [];   // [{id, title, createdAt, updatedAt}] — sidebar list
-let aiActiveChatId  = null;
-let aiActiveMessages = [];  // raw Anthropic content-block messages for the open chat
-let aiSending        = false;
-
-function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
-}
-
-// Distinct from aiRenderMessages() showing an *open* chat with no messages yet
-// ("Ask a question below to get started.") — this is for when no chat is
-// selected at all, so the input row is hidden and there's nothing to ask into.
-function aiClearActiveChat() {
-    aiActiveChatId   = null;
-    aiActiveMessages = [];
-    const conv = document.getElementById('aiConversation');
-    if (conv) conv.innerHTML = '<div class="ai-empty-state">Select a chat, or start a new one, to ask about your spending.</div>';
-    const inputRow = document.getElementById('aiInputRow');
-    if (inputRow) inputRow.style.display = 'none';
-}
-
-async function aiInit() {
-    const list = document.getElementById('aiChatList');
-    try {
-        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats`);
-        const data = await res.json();
-        aiChats = data.chats || [];
-    } catch (e) {
-        if (list) list.innerHTML = `<div class="ai-chat-empty">Couldn't reach the server.</div>`;
-        return;
-    }
-    aiRenderChatList();
-    // If the previously-open chat got deleted (e.g. from elsewhere), fall back to the empty state.
-    if (aiActiveChatId && !aiChats.some(c => c.id === aiActiveChatId)) {
-        aiClearActiveChat();
-    }
-}
-
-function aiRenderChatList() {
-    const list = document.getElementById('aiChatList');
-    if (!list) return;
-    if (aiChats.length === 0) {
-        list.innerHTML = '<div class="ai-chat-empty">No chats yet — start one above.</div>';
-        return;
-    }
-    list.innerHTML = aiChats.map(c => `
-        <div class="ai-chat-item${c.id === aiActiveChatId ? ' active' : ''}" onclick="aiSwitchChat('${c.id}')">
-            <span class="ai-chat-item-title" spellcheck="false" ondblclick="aiStartRename(event, '${c.id}')">${escapeHtml(c.title || 'New Chat')}</span>
-            <button class="ai-chat-del-btn" onclick="aiDeleteChat(event, '${c.id}')" title="Delete chat">×</button>
-        </div>`).join('');
-}
-
-function aiStartRename(event, id) {
-    event.stopPropagation(); // don't let the dblclick's bubble also fire the row's switch-chat click
-    const span = event.target;
-    span.contentEditable = 'true';
-    span.focus();
-    // Select just the span's own text. document.execCommand('selectAll') was
-    // tried here first but selects the whole page, not just this element —
-    // the Range/Selection API is the reliable, properly-scoped way to do this.
-    const range = document.createRange();
-    range.selectNodeContents(span);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    const original = aiChats.find(c => c.id === id)?.title || '';
-    const commit = () => {
-        span.removeEventListener('blur', commit);
-        span.removeEventListener('keydown', onKeydown);
-        span.contentEditable = 'false';
-        const newTitle = span.textContent.trim();
-        if (newTitle && newTitle !== original) aiRenameChat(id, newTitle);
-        else aiRenderChatList(); // revert to the stored title if left blank/unchanged
-    };
-    const onKeydown = (e) => {
-        if (e.key === 'Enter')  { e.preventDefault(); span.blur(); }
-        if (e.key === 'Escape') { e.preventDefault(); span.textContent = original; span.blur(); }
-    };
-    span.addEventListener('blur', commit);
-    span.addEventListener('keydown', onKeydown);
-}
-
-async function aiRenameChat(id, title) {
-    try {
-        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats/${id}`, {
-            method:  'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ title }),
-        });
-        const data = await res.json();
-        const c = aiChats.find(x => x.id === id);
-        if (c && data.chat) c.title = data.chat.title;
-    } catch (e) {}
-    aiRenderChatList();
-}
-
-async function aiDeleteChat(event, id) {
-    event.stopPropagation(); // don't also trigger the row's switch-chat click
-    const chat = aiChats.find(c => c.id === id);
-    if (!confirm(`Delete "${chat ? chat.title : 'this chat'}"? This can't be undone.`)) return;
-    try { await fetch(`${PLAID_SERVER}/api/ai/chats/${id}`, { method: 'DELETE' }); } catch (e) {}
-    aiChats = aiChats.filter(c => c.id !== id);
-    if (aiActiveChatId === id) aiClearActiveChat();
-    aiRenderChatList();
-}
-
-async function aiCreateChat() {
-    try {
-        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({}),
-        });
-        const data = await res.json();
-        if (!data.chat) throw new Error(data.error || 'Could not create chat');
-        aiChats.unshift(data.chat);
-        aiRenderChatList();
-        await aiSwitchChat(data.chat.id);
-        document.getElementById('aiInputBox')?.focus();
-    } catch (e) {
-        alert('Could not create a new chat: ' + e.message);
-    }
-}
-
-async function aiSwitchChat(id) {
-    if (aiSending) return; // don't abandon an in-flight stream's UI
-    aiActiveChatId = id;
-    aiRenderChatList();
-    const conv = document.getElementById('aiConversation');
-    conv.innerHTML = '<div class="ai-typing">Loading…</div>';
-    document.getElementById('aiInputRow').style.display = 'none';
-    try {
-        const res  = await fetch(`${PLAID_SERVER}/api/ai/chats/${id}`);
-        const data = await res.json();
-        if (!data.chat) throw new Error(data.error || 'Chat not found');
-        aiActiveMessages = data.chat.messages || [];
-    } catch (e) {
-        conv.innerHTML = `<div class="ai-msg ai-msg-error">Couldn't load this chat: ${escapeHtml(e.message)}</div>`;
-        return;
-    }
-    aiRenderMessages();
-    document.getElementById('aiInputRow').style.display = '';
-}
-
-// Flattens an Anthropic content-block array (or plain string) down to its text.
-function aiExtractText(content) {
-    if (typeof content === 'string') return content;
-    if (!Array.isArray(content)) return '';
-    return content.filter(b => b && b.type === 'text').map(b => b.text).join('\n\n');
-}
-
-function aiToolLabel(name, input) {
-    input = input || {};
-    if (name === 'get_transactions') {
-        const parts = [];
-        if (input.category) parts.push(input.category);
-        if (input.startDate || input.endDate) parts.push(`${input.startDate || '…'} → ${input.endDate || '…'}`);
-        return 'transactions' + (parts.length ? ' (' + parts.join(', ') + ')' : '');
-    }
-    if (name === 'get_category_totals') {
-        return 'category totals' + (input.startDate || input.endDate ? ` (${input.startDate || '…'} → ${input.endDate || '…'})` : '');
-    }
-    if (name === 'list_subscriptions') return 'subscriptions';
-    return name;
-}
-
-function aiRenderMessages() {
-    const conv = document.getElementById('aiConversation');
-    if (!conv) return;
-    let html = '';
-    aiActiveMessages.forEach(msg => {
-        if (msg.role === 'user') {
-            // A "user" turn that's actually just tool_result blocks is internal
-            // plumbing (the server feeding tool output back), not something the user typed.
-            const isToolResultTurn = Array.isArray(msg.content) && msg.content.length > 0 &&
-                msg.content.every(b => b && b.type === 'tool_result');
-            if (isToolResultTurn) return;
-            const text = aiExtractText(msg.content);
-            if (text.trim()) html += `<div class="ai-msg ai-msg-user">${escapeHtml(text)}</div>`;
-            return;
-        }
-        if (msg.role === 'assistant') {
-            if (Array.isArray(msg.content)) {
-                msg.content.filter(b => b && b.type === 'tool_use').forEach(b => {
-                    html += `<div class="ai-tool-note">🔎 Checked: ${escapeHtml(aiToolLabel(b.name, b.input))}</div>`;
-                });
-            }
-            const text = aiExtractText(msg.content);
-            if (text.trim()) html += `<div class="ai-msg ai-msg-assistant">${escapeHtml(text)}</div>`;
-        }
-    });
-    conv.innerHTML = html || '<div class="ai-empty-state">Ask a question below to get started.</div>';
-    conv.scrollTop = conv.scrollHeight;
-}
-
-// Same shape ccTransactions/subscriptions already have for Monthly Real —
-// reused as-is so categorization logic stays in one place (here), while the
-// server's AI tools just filter/aggregate this snapshot instead of Plaid data directly.
-function aiBuildSnapshot() {
-    return {
-        transactions: ccTransactions.map(t => ({
-            isoDate: t.isoDate, desc: t.desc, amount: t.amount,
-            category: t.category, subCategory: t.subCategory || null, accountName: t.accountName || '',
-        })),
-        subscriptions: subscriptions.map(s => ({ name: s.name, value: s.value })),
-        excludeFromSpend: [...CC_EXCLUDE_FROM_SPEND],
-    };
-}
-
-function aiHandleInputKeydown(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        aiSendMessage();
-    }
-}
-
-async function aiSendMessage() {
-    if (aiSending || !aiActiveChatId) return;
-    const box = document.getElementById('aiInputBox');
-    const text = box.value.trim();
-    if (!text) return;
-
-    aiSending = true;
-    box.value = '';
-    box.disabled = true;
-    const sendBtn    = document.getElementById('aiSendBtn');
-    const newChatBtn = document.querySelector('.ai-new-chat-btn');
-    sendBtn.disabled = true;
-    if (newChatBtn) newChatBtn.disabled = true;
-
-    const conv = document.getElementById('aiConversation');
-    const emptyState = conv.querySelector('.ai-empty-state');
-    if (emptyState) emptyState.remove();
-
-    const userBubble = document.createElement('div');
-    userBubble.className = 'ai-msg ai-msg-user';
-    userBubble.textContent = text;
-    conv.appendChild(userBubble);
-
-    const typingEl = document.createElement('div');
-    typingEl.className = 'ai-typing';
-    typingEl.textContent = 'Thinking…';
-    conv.appendChild(typingEl);
-    conv.scrollTop = conv.scrollHeight;
-
-    let streamBubble = null;
-    let streamedText = '';
-    let hadError = false;
-    const chatId = aiActiveChatId;
-
-    try {
-        const res = await fetch(`${PLAID_SERVER}/api/ai/chats/${chatId}/messages`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ message: text, snapshot: aiBuildSnapshot() }),
-        });
-        if (!res.ok || !res.body) {
-            let errMsg = `Request failed (${res.status})`;
-            try { const errData = await res.json(); if (errData.error) errMsg = errData.error; } catch (_) {}
-            throw new Error(errMsg);
-        }
-
-        const reader  = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-            let idx;
-            while ((idx = buf.indexOf('\n\n')) !== -1) {
-                const chunk = buf.slice(0, idx);
-                buf = buf.slice(idx + 2);
-                const line = chunk.split('\n').find(l => l.startsWith('data: '));
-                if (!line) continue;
-                let payload;
-                try { payload = JSON.parse(line.slice(6)); } catch (_) { continue; }
-
-                if (payload.type === 'title') {
-                    const c = aiChats.find(x => x.id === chatId);
-                    if (c && c.title !== payload.title) { c.title = payload.title; aiRenderChatList(); }
-                } else if (payload.type === 'tool_use') {
-                    if (typingEl.isConnected) typingEl.textContent = 'Checking ' + aiToolLabel(payload.name, payload.input) + '…';
-                } else if (payload.type === 'text') {
-                    if (typingEl.isConnected) typingEl.remove();
-                    if (!streamBubble) {
-                        streamBubble = document.createElement('div');
-                        streamBubble.className = 'ai-msg ai-msg-assistant';
-                        conv.appendChild(streamBubble);
-                    }
-                    streamedText += payload.text;
-                    streamBubble.textContent = streamedText;
-                    conv.scrollTop = conv.scrollHeight;
-                } else if (payload.type === 'error') {
-                    hadError = true;
-                    if (typingEl.isConnected) typingEl.remove();
-                    const errBubble = document.createElement('div');
-                    errBubble.className = 'ai-msg ai-msg-error';
-                    errBubble.textContent = payload.message || 'Something went wrong.';
-                    conv.appendChild(errBubble);
-                    conv.scrollTop = conv.scrollHeight;
-                }
-                // 'done' needs no handling here — the chat is re-fetched below regardless.
-            }
-        }
-    } catch (err) {
-        hadError = true;
-        if (typingEl.isConnected) typingEl.remove();
-        const errBubble = document.createElement('div');
-        errBubble.className = 'ai-msg ai-msg-error';
-        errBubble.textContent = err.message || 'Something went wrong.';
-        conv.appendChild(errBubble);
-    }
-
-    aiSending = false;
-    box.disabled = false;
-    sendBtn.disabled = false;
-    if (newChatBtn) newChatBtn.disabled = false;
-
-    if (hadError) {
-        // Nothing was persisted server-side on failure (see server.js — every
-        // error path returns before touching chat.messages), so re-fetching
-        // would just wipe the error/user bubbles above with an empty history.
-        // Restore the text instead so the user can retry without retyping.
-        box.value = text;
-        box.focus();
-        return;
-    }
-    box.focus();
-
-    // Re-fetch the canonical persisted chat rather than reconstructing the
-    // exact content-block structure (tool_use turns, etc.) client-side.
-    if (aiActiveChatId === chatId) {
-        try {
-            const res  = await fetch(`${PLAID_SERVER}/api/ai/chats/${chatId}`);
-            const data = await res.json();
-            if (data.chat) {
-                aiActiveMessages = data.chat.messages || [];
-                aiRenderMessages();
-            }
-        } catch (_) {}
-        const c = aiChats.find(x => x.id === chatId);
-        if (c) { c.updatedAt = new Date().toISOString(); aiRenderChatList(); }
-    }
-}
 
 /* ══════════════════════════════════════════
    App Settings
@@ -4396,7 +3586,6 @@ async function appSettingsInit() {
     // Reset any stale update-check result from a previous visit to this tab.
     appResetUpdateUI();
 
-    await appRefreshAnthropicStatus();
     await appRefreshGithubStatus();
 }
 
@@ -4554,60 +3743,6 @@ async function appLoadSidebarVersion() {
     } catch (e) {
         document.getElementById('sidebarVersion').textContent = '';
     }
-}
-
-// ── Claude API key ───────────────────────────────────────────────────────────
-async function appRefreshAnthropicStatus() {
-    const statusEl = document.getElementById('appAnthropicStatus');
-    const clearBtn = document.getElementById('appAnthropicClearBtn');
-    try {
-        const res  = await fetch(`${PLAID_SERVER}/api/app/anthropic-key-status`);
-        const data = await res.json();
-        if (data.configured) {
-            statusEl.textContent = 'Key configured';
-            statusEl.className = 'as-status-text as-ok';
-            clearBtn.style.display = '';
-        } else {
-            statusEl.textContent = 'No key set';
-            statusEl.className = 'as-status-text as-warn';
-            clearBtn.style.display = 'none';
-        }
-    } catch (e) {
-        statusEl.textContent = 'Unknown';
-        statusEl.className = 'as-status-text';
-    }
-}
-
-async function appSaveAnthropicKey() {
-    const input = document.getElementById('appAnthropicKeyInput');
-    const msg   = document.getElementById('appAnthropicMsg');
-    const key   = input.value.trim();
-    if (!key) return;
-    msg.textContent = 'Validating…';
-    msg.className = 'as-msg';
-    try {
-        const res  = await fetch(`${PLAID_SERVER}/api/app/anthropic-key`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ apiKey: key }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Could not save key');
-        input.value = ''; // never leave the secret sitting in the field once saved
-        msg.textContent = 'Saved.';
-        msg.className = 'as-msg as-ok';
-        await appRefreshAnthropicStatus();
-    } catch (e) {
-        msg.textContent = e.message;
-        msg.className = 'as-msg as-err';
-    }
-}
-
-async function appClearAnthropicKey() {
-    if (!confirm('Remove the saved Claude API key? AI Analyze will stop working until you add a new one.')) return;
-    try { await fetch(`${PLAID_SERVER}/api/app/anthropic-key`, { method: 'DELETE' }); } catch (e) {}
-    await appRefreshAnthropicStatus();
-    document.getElementById('appAnthropicMsg').textContent = '';
 }
 
 // ── GitHub token ──────────────────────────────────────────────────────────────

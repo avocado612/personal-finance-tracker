@@ -15,7 +15,7 @@ A personal finance tracker: a single-page vanilla JS frontend (no build step, no
   - To enable HTTPS locally (needed for Plaid Link OAuth flows), run `mkcert localhost` inside `~/.finance-tracker/` (not the repo root — see "Desktop app").
 - Build a distributable Linux app: `npm run dist` (runs `electron-builder`, produces an AppImage in `dist/`; `.deb` is not built — see below)
 - No test suite, linter, or build step exists for the frontend in this repo.
-- `.env` (in `~/.finance-tracker/`, not the repo) holds Plaid credentials (`PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `PORT`, `REDIRECT_URI`) — never print or commit its contents. `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` live here too, but are optional and meant to be set from the **App Settings** tab in the running app, not hand-edited — see below.
+- `.env` (in `~/.finance-tracker/`, not the repo) holds Plaid credentials (`PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `PORT`, `REDIRECT_URI`) — never print or commit its contents. `GITHUB_TOKEN` lives here too, but is optional and meant to be set from the **App Settings** tab in the running app, not hand-edited — see below.
 
 ## Desktop app
 
@@ -31,27 +31,25 @@ The app is packaged with Electron (`main.js` is the Electron entry point, set as
 - `/api/create_link_token`, `/api/exchange_token` — Plaid Link handshake to obtain and store an access token (see `.plaid_items.json` under `DATA_DIR`).
 - `/api/transactions` — syncs transactions via Plaid's cursor-based `transactionsSync`, accumulates them keyed by `transaction_id` in `.plaid_history.json` (never deletes across syncs, only adds/modifies/removes per Plaid's diff), then filters out transfers/income/loan-payment categories before returning spending transactions to the client.
 - `/api/all-transactions` — same history, unfiltered, grouped by account (used for per-account drilldowns).
-- `/api/save-csv`, `/api/load-csv`, `/api/delete-csv/:accountName` — persist manually-uploaded CSV statement data as JSON files under `.csv_data/`, one file per account.
 - `/api/accounts`, `/api/status`, `/api/unlink` — account metadata / link status / disconnect.
-- `/api/ai/chats*` — AI Analyze: CRUD for chat sessions (`.ai_chats.json` under `DATA_DIR`) plus `POST /api/ai/chats/:id/messages`, which streams a Claude response over SSE and runs a manual tool-use loop (`get_transactions`/`get_category_totals`/`list_subscriptions`, defined in `AI_TOOLS`) against a transaction snapshot the client sends with each message — see the big comment above that handler for the full design rationale.
-- `/api/app/*` — App Settings: `version`, `changelog` (parses `CHANGELOG.md`), `update-check` (queries the GitHub Releases API for `GITHUB_REPO`, needs `GITHUB_TOKEN` since the repo is private), and `anthropic-key`/`github-token` (GET status / POST save+validate / DELETE clear — `upsertEnvVar`/`removeEnvVar` edit `DATA_DIR/.env` in place; both credentials are also re-applied in-memory immediately via `setAnthropicApiKey`/`setGithubToken`, no restart needed).
-- State lives entirely in flat files under `DATA_DIR` (`.plaid_items.json`, `.plaid_history.json`, `.csv_data/*.json`, `.ai_chats.json`, etc.) — there is no database.
+- `/api/app/*` — App Settings: `version`, `changelog` (parses `CHANGELOG.md`), `update-check` (queries the GitHub Releases API for `GITHUB_REPO`, needs `GITHUB_TOKEN` since the repo is private), and `github-token` (GET status / POST save+validate / DELETE clear — `upsertEnvVar`/`removeEnvVar` edit `DATA_DIR/.env` in place; also re-applied in-memory immediately via `setGithubToken`, no restart needed).
+- State lives entirely in flat files under `DATA_DIR` (`.plaid_items.json`, `.plaid_history.json`, etc.) — there is no database.
 
-**Frontend** — everything is one page (`index.html`) with all ten "sheets" (tabs) inlined as hidden/shown `<div class="sheet">` blocks, switched via `showTab()`. All behavior lives in the single `script.js` (no modules/bundler); `styles.css` holds all styling.
+**Frontend** — everything is one page (`index.html`) with all eight "sheets" (tabs) inlined as hidden/shown `<div class="sheet">` blocks, switched via `showTab()`. All behavior lives in the single `script.js` (no modules/bundler); `styles.css` holds all styling.
 
 Important: **`tabs/*.html|css|js` is dead code** — an earlier attempt to split the app into per-tab files that was never wired up. `index.html` only loads `script.js` directly and none of the `tabs/` files are referenced anywhere. Don't assume edits there have any effect; make changes in `script.js`/`index.html`/`styles.css` instead. (Worth confirming with the user before deleting `tabs/`, since it hasn't been cleaned up yet.)
+
+**AI Analyze and CSV upload were removed from this branch** (the one releases are built from) pending re-validation — they still exist, fully working, on the `feature/ai-analyze` and `feature/csv-upload` branches respectively, to be re-added later. Don't reintroduce them here without being asked; if working on either feature, do it on its own branch, not `electron-desktop-app`.
 
 Within `script.js`, the sheets/features are:
 - **Monthly Ideal** — budget planning: income (base/RSU/bonus/stock refresher) → tax calc (`calcBracketTax`, progressive federal/CA brackets) → expense/tithing/savings allocation, rendered as an SVG flow diagram (`drawFlowArrows`) and pie chart (`drawIdealPie`).
 - **Monthly Real** (`renderMonthlyReal`) — budget vs. actual, sourced from live transaction data.
-- **Expenses / Credit Card** (`credit-card` sheet) — the Plaid live-sync UI (`plaidConnect`, `plaidSync`, `plaidToggle`) plus analytics (category charts, monthly tables, transfer-flow triangle detection between accounts).
-- **History (CSV upload)** — manual CSV statement upload/parsing (`loadCSV`, `parseCSV`, `analyzeCSV`) as a fallback/supplement to Plaid data, persisted server-side via `/api/save-csv`.
+- **Expenses / Credit Card** (`credit-card` sheet) — the Plaid live-sync UI (`plaidConnect`, `plaidSync`, `plaidToggle`) plus analytics (category charts, monthly tables, transfer-flow triangle detection between accounts). Plaid-only — CSV upload was removed (see above).
 - **Subscription_List** — user-defined recurring charges plus auto-detection of recurring charges from transaction history (`detectSubscriptions`).
-- **AI Analyze** — chat with Claude about your spending. tmux-style: multiple independent chat sessions (create/switch/rename/delete via `aiCreateChat`/`aiSwitchChat`/`aiRenameChat`/`aiDeleteChat`), each persisted server-side. `aiSendMessage` POSTs to the streaming endpoint and manually parses the SSE frames (can't use `EventSource` — it's GET-only and this needs a body); `aiBuildSnapshot` is what turns `ccTransactions`/`subscriptions` into the payload the server's tools query.
-- **App Settings** (`appSettingsInit` and the `app*` functions) — version/changelog display, update check, and the Claude/GitHub credential UI (`appSaveAnthropicKey`/`appClearAnthropicKey`, `appSaveGithubToken`/`appClearGithubToken`) that POSTs to `/api/app/*` instead of requiring users to hand-edit `.env`.
+- **App Settings** (`appSettingsInit` and the `app*` functions) — version/changelog display, update check, and the GitHub token UI (`appSaveGithubToken`/`appClearGithubToken`) that POSTs to `/api/app/*` instead of requiring users to hand-edit `.env`.
 - **Edit** — the settings panel: income inputs, tax toggles, RSU vest months, tithing rates, and expense category definitions (each category has keyword rules used to auto-categorize transactions, see `ccCategorize`/`ccCategorizeFull`).
 
-**Data flow**: Plaid transactions and CSV-uploaded transactions are merged (`mergeTxnSources`), deduplicated (`isDuplicate`, comparing description overlap and dates), and refund/charge pairs are matched (`findMatchingCharge`, `flagExactRefunds`) before being categorized and rendered across the analytics sheets.
+**Data flow**: Plaid transactions are deduplicated (`isDuplicate`, comparing description overlap and dates) and refund/charge pairs are matched (`findMatchingCharge`, `flagExactRefunds`) before being categorized and rendered across the analytics sheets (`mergeTxnSources` builds `ccTransactions` from Plaid history).
 
 **Client-side persistence**: user-editable settings (expense categories, keywords, tithing rates, income inputs, ideal savings, subscriptions) are saved to `localStorage` (see the `saveToStorage`/`loadFromStorage` block, keys prefixed `fc_`), and mirrored to the server on a debounce via `/api/save-settings` into `.budget_settings.json`, restored via `/api/load-settings` on page load so this data survives localStorage being cleared. Transaction data itself comes from the server (Plaid history / CSV files), not localStorage.
 

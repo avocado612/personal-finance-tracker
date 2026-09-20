@@ -341,19 +341,6 @@ input.name-input:focus { border-bottom-color: #000 !important; }
 .raw-plaid-row td { background: #e8f4fd; }
 .raw-plaid-row:hover td { background: #d0e8f7 !important; }
 
-/* ── Plaid live data indicators ── */
-.month-plaid td { background: #e0f0fb !important; color: #1a6fa8; }
-.month-plaid:hover td { background: #c8e4f5 !important; }
-.month-plaid-marker td {
-    background: #1a6fa8 !important;
-    color: #fff;
-    font-style: italic;
-    font-size: 11px;
-    text-align: center;
-    padding: 5px 8px;
-    border-top: none;
-    cursor: default;
-}
 /* Plaid transaction rows inside category detail panels */
 .txn-plaid { background: #edf5fc; border-left: 3px solid #4a9fd4; }
 .txn-plaid:hover { background: #d8ecf8 !important; }
@@ -472,43 +459,6 @@ input.name-input:focus { border-bottom-color: #000 !important; }
     color: #1558b0; white-space: nowrap; font-family: Arial, sans-serif; flex-shrink: 0;
 }
 .cat-similar-btn:hover { background: #1558b0; color: #fff; border-color: #1558b0; }
-
-/* ── AI Analyze ── */
-/* .sheet.active is display:block by default; this tab needs a flex column
-   (sidebar + conversation) that fills the available height instead. */
-#ai-analyze.sheet.active { display: flex; flex-direction: column; }
-.ai-layout { display: flex; flex: 1; min-height: 0; gap: 0; padding: 0; align-items: stretch; }
-
-.ai-sidebar { width: 220px; flex-shrink: 0; border-right: 1px solid #999; background: #fafafa; display: flex; flex-direction: column; }
-.ai-sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #ccc; font-weight: bold; font-size: 13px; }
-.ai-new-chat-btn { border: 1px solid #999; background: #f7f7f7; cursor: pointer; font-size: 12px; padding: 3px 8px; border-radius: 3px; font-family: Arial, sans-serif; }
-.ai-new-chat-btn:hover { background: #eee; }
-.ai-chat-list { flex: 1; overflow-y: auto; }
-.ai-chat-empty { padding: 14px 10px; font-size: 12px; color: #888; }
-.ai-chat-item { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 8px 10px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 13px; }
-.ai-chat-item:hover { background: #f0f0f0; }
-.ai-chat-item.active { background: #fff; font-weight: bold; border-left: 3px solid #000; padding-left: 7px; }
-.ai-chat-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-chat-item-title[contenteditable="true"] { white-space: normal; outline: 1px solid #1558b0; background: #fff; cursor: text; }
-.ai-chat-del-btn { border: none; background: none; cursor: pointer; color: #b00; font-size: 15px; line-height: 1; padding: 0 2px; flex-shrink: 0; }
-.ai-chat-del-btn:hover { color: #f00; }
-
-.ai-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.ai-conversation { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
-.ai-empty-state { color: #888; font-size: 14px; margin: auto; text-align: center; }
-.ai-msg { max-width: 70%; padding: 8px 12px; border-radius: 8px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
-.ai-msg-user { align-self: flex-end; background: #1558b0; color: #fff; }
-.ai-msg-assistant { align-self: flex-start; background: #f0f0f0; color: #000; border: 1px solid #e0e0e0; }
-.ai-msg-error { align-self: center; background: #fdecea; color: #b00; border: 1px solid #f5c6c0; font-size: 13px; max-width: 90%; }
-.ai-tool-note { align-self: flex-start; font-size: 11px; color: #888; font-style: italic; padding: 2px 4px; }
-.ai-typing { align-self: flex-start; color: #888; font-size: 13px; font-style: italic; }
-
-.ai-input-row { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid #ccc; background: #fafafa; flex-shrink: 0; }
-.ai-input-textarea { flex: 1; resize: none; border: 1px solid #bbb; border-radius: 4px; padding: 8px 10px; font-size: 14px; font-family: Arial, sans-serif; }
-.ai-input-textarea:focus { outline: none; border-color: #1558b0; }
-.ai-send-btn { border: none; background: #27ae60; color: #fff; cursor: pointer; font-weight: 700; font-size: 13px; padding: 0 18px; border-radius: 4px; font-family: Arial, sans-serif; }
-.ai-send-btn:hover:not(:disabled) { background: #219150; }
-.ai-send-btn:disabled { background: #aaa; cursor: default; }
 
 /* ── App Settings ── */
 .as-update-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
