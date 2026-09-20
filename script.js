@@ -238,7 +238,7 @@ function renderDetectedSubscriptions() {
     el.innerHTML = _detectedSubs.map((g, i) => `
         <div class="sub-detect-row">
             <div class="sub-detect-info">
-                <span class="sub-detect-name">${g.name.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>
+                <span class="sub-detect-name">${escapeHtml(g.name)}</span>
                 <span class="sub-detect-meta">Day ${g.day} of month &nbsp;·&nbsp; ${g.months.size} months seen</span>
             </div>
             <div class="sub-detect-right">
@@ -527,7 +527,7 @@ function renderSubscriptions() {
             ? '<p class="sub-empty">No confirmed subscriptions yet. Confirm from detected list below.</p>'
             : subscriptions.map(s => `
                 <div class="box-row">
-                    <label>${s.name || '(unnamed)'}</label>
+                    <label>${escapeHtml(s.name || '(unnamed)')}</label>
                     <span style="display:flex;align-items:center;gap:10px;">
                         <span>$${fmt(s.value, 2)}/mo</span>
                         <button class="del-btn" onclick="deleteSubscription(${s.id})" title="Remove">×</button>
@@ -1298,10 +1298,11 @@ function renderRecentTransactions() {
         const amtStr = (isCredit ? '+' : '−') + '$' + fmt(amt, 2);
         const amtColor = isCredit ? '#27ae60' : '#c0392b';
         const catColor = CATEGORY_COLORS[t.category] || '#888';
-        const acct = t.accountName ? `<span style="color:#aaa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;">${t.accountName}</span>` : '';
+        const safeDesc = escapeHtml(t.desc);
+        const acct = t.accountName ? `<span style="color:#aaa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;">${escapeHtml(t.accountName)}</span>` : '';
         return `<div style="display:flex;align-items:center;gap:10px;padding:7px 14px;border-bottom:1px solid #f3f3f3;font-size:13px;">
             <span style="color:#999;font-size:11px;white-space:nowrap;min-width:74px;">${t.isoDate}</span>
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.desc}">${t.desc}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${safeDesc}">${safeDesc}</span>
             ${acct}
             <span style="font-size:11px;background:${catColor}18;color:${catColor};border-radius:3px;padding:1px 5px;white-space:nowrap;">${t.category}</span>
             <span style="font-weight:700;color:${amtColor};white-space:nowrap;min-width:68px;text-align:right;">${amtStr}</span>
@@ -1320,15 +1321,15 @@ function renderZelleVenmoRow(t, classifyOpts) {
     const amtStr = (isCredit ? '+' : '−') + '$' + fmt(amt, 2);
     const amtColor = isCredit ? '#27ae60' : '#c0392b';
     const catColor = CATEGORY_COLORS[t.category] || '#888';
-    const safeDesc = t.desc.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-    const acct = t.accountName ? `<span style="color:#aaa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;">${t.accountName}</span>` : '';
+    const safeDesc = escapeHtml(t.desc);
+    const acct = t.accountName ? `<span style="color:#aaa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;">${escapeHtml(t.accountName)}</span>` : '';
     // Same description, different real-world meaning is common for P2P payments (a Zelle to
     // your roommate might be Rent most months and a Gift another month) — default to pinning
     // just this one transaction, with an opt-in checkbox for the old "all matching" behavior.
     return `<div class="cat-detail-row" data-desc="${safeDesc}" data-iso="${t.isoDate||''}" data-amt="${t.amount}" style="padding:7px 14px;font-size:13px;">
         <span style="color:#999;font-size:11px;white-space:nowrap;min-width:74px;">${t.isoDate}</span>
         <div class="cat-desc-group" style="flex:1;min-width:0;">
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.desc}">${t.desc}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${safeDesc}">${safeDesc}</span>
             ${acct}
             <span style="font-size:11px;background:${catColor}18;color:${catColor};border-radius:3px;padding:1px 5px;white-space:nowrap;">${t.category}</span>
             <div class="cat-classify-wrap" onclick="event.stopPropagation()">
@@ -1654,16 +1655,17 @@ function _renderSimilarRows(list) {
             const dateStr = d.length >= 10 ? `${d.slice(5,7)}/${d.slice(8,10)}/${d.slice(2,4)}` : d;
             const acctColor = t.accountName ? getAccountColor(t.accountName) : '#aaa';
             const acctBadge = t.accountName
-                ? `<span style="background:${acctColor};color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap;">${t.accountName.split(' ').map(w=>w[0]).join('').slice(0,3).toUpperCase()}</span>`
+                ? `<span style="background:${acctColor};color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap;">${escapeHtml(t.accountName.split(' ').map(w=>w[0]).join('').slice(0,3).toUpperCase())}</span>`
                 : '';
             const catLabel = t.category
-                ? `<span style="font-size:10px;color:#aaa;">${t.category}</span>`
+                ? `<span style="font-size:10px;color:#aaa;">${escapeHtml(t.category)}</span>`
                 : '';
+            const safeDesc = escapeHtml(t.desc || '');
             return `<div class="txn-similar-row">
                 <span class="txn-similar-row-date">${dateStr}</span>
                 <span>${acctBadge}</span>
-                <span class="txn-similar-row-desc" title="${(t.desc||'').replace(/"/g,'&quot;')}">
-                    ${t.desc || '—'}<br>${catLabel}
+                <span class="txn-similar-row-desc" title="${safeDesc}">
+                    ${safeDesc || '—'}<br>${catLabel}
                 </span>
                 <span class="txn-similar-row-amt" style="color:${amtColor}">${amtStr}</span>
             </div>`;
@@ -1745,7 +1747,7 @@ function renderTxnRow(t, catName, classifyOpts) {
     const isRefund = t.amount > 0;
     const amtLabel = isRefund ? `+$${fmt(t.amount, 2)}` : `$${fmt(-t.amount, 2)}`;
     const amtClass = isRefund ? 'cat-detail-amt refund-amt' : 'cat-detail-amt';
-    const safeDesc = t.desc.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    const safeDesc = escapeHtml(t.desc);
     const btnLabel = catName === 'Other' ? 'Categorize' : '↗';
     const classify = `
         <div class="cat-classify-wrap" onclick="event.stopPropagation()">
@@ -1759,14 +1761,14 @@ function renderTxnRow(t, catName, classifyOpts) {
     const sourceClass = t.source === 'plaid' ? ' txn-plaid' : '';
     const acctColor  = t.accountName ? getAccountColor(t.accountName) : '';
     const acctBadge  = t.accountName
-        ? `<span class="acct-txn-badge" style="background:${acctColor};" title="${t.accountName}">${t.accountName.split(' ').map(w=>w[0]).join('').slice(0,3).toUpperCase()}</span>`
+        ? `<span class="acct-txn-badge" style="background:${acctColor};" title="${escapeHtml(t.accountName)}">${escapeHtml(t.accountName.split(' ').map(w=>w[0]).join('').slice(0,3).toUpperCase())}</span>`
         : (t.source === 'plaid' ? '<span class="plaid-badge">🔵</span>' : '');
     const sourceBadge = acctBadge;
     const similarBtn = `<button class="cat-similar-btn" onclick="event.stopPropagation();openSimilarTxns(this.dataset.desc)" data-desc="${safeDesc}" title="Find similar transactions">≡</button>`;
     return `<div class="cat-detail-row${sourceClass}" data-mkey="${mkey}" data-desc="${safeDesc}" onclick="highlightMerchant(this.dataset.mkey)">
         <span class="cat-detail-date">${dateLabel}</span>
         <div class="cat-desc-group">
-            ${sourceBadge}<span class="cat-detail-desc" title="${t.desc}">${t.desc}</span>
+            ${sourceBadge}<span class="cat-detail-desc" title="${safeDesc}">${safeDesc}</span>
             ${classify}${similarBtn}
         </div>
         <span class="${amtClass}">${amtLabel}</span>
@@ -2356,7 +2358,7 @@ function renderUnifiedRawTable() {
             if (letter !== curLetter) {
                 curLetter = letter;
                 rowIdx = 0;
-                groupRow = `<tr class="raw-alpha-group"><td colspan="5">${letter}</td></tr>`;
+                groupRow = `<tr class="raw-alpha-group"><td colspan="5">${escapeHtml(letter)}</td></tr>`;
             }
             const baseCls = rowIdx++ % 2 === 0 ? 'csv-month-a' : 'csv-month-b';
             const amt      = t.amount < 0
@@ -2366,11 +2368,11 @@ function renderUnifiedRawTable() {
                 ? '<span style="color:#1a6fa8; font-weight:bold;">🔵 Plaid</span>'
                 : '<span style="color:#888;">📄 CSV</span>';
             return groupRow + `<tr class="${baseCls}">
-                <td>${t.isoDate || t.date}</td>
-                <td>${t.desc}</td>
+                <td>${escapeHtml(t.isoDate || t.date)}</td>
+                <td>${escapeHtml(t.desc)}</td>
                 <td style="text-align:right; white-space:nowrap;">${amt}</td>
                 <td>${srcLabel}</td>
-                <td class="csv-cat-cell">${t.category || ''}</td>
+                <td class="csv-cat-cell">${escapeHtml(t.category || '')}</td>
             </tr>`;
         }).join('');
     } else {
@@ -2388,11 +2390,11 @@ function renderUnifiedRawTable() {
                 ? '<span style="color:#1a6fa8; font-weight:bold;">🔵 Plaid</span>'
                 : '<span style="color:#888;">📄 CSV</span>';
             return `<tr class="${baseCls}">
-                <td>${t.isoDate || t.date}</td>
-                <td>${t.desc}</td>
+                <td>${escapeHtml(t.isoDate || t.date)}</td>
+                <td>${escapeHtml(t.desc)}</td>
                 <td style="text-align:right; white-space:nowrap;">${amt}</td>
                 <td>${srcLabel}</td>
-                <td class="csv-cat-cell">${t.category || ''}</td>
+                <td class="csv-cat-cell">${escapeHtml(t.category || '')}</td>
             </tr>`;
         }).join('');
     }
@@ -3148,8 +3150,8 @@ function showPlaidAccounts(items) {
                      onclick="toggleAcctPanel(${idx})">
                     <span style="display:flex; align-items:center; gap:6px; flex:1; min-width:0;">
                         <span style="font-size:15px;">${icon}</span>
-                        <strong style="font-size:13px;">${a.name || '—'}</strong>
-                        <span style="color:#aaa; font-size:11px;">${sub ? `(${sub})` : ''} ${maskStr}</span>
+                        <strong style="font-size:13px;">${escapeHtml(a.name || '—')}</strong>
+                        <span style="color:#aaa; font-size:11px;">${sub ? `(${escapeHtml(sub)})` : ''} ${escapeHtml(maskStr)}</span>
                     </span>
                     <span style="font-size:12px; font-weight:600; color:#1a3a6e; white-space:nowrap;">${balStr}${availStr}</span>
                     <span id="acct-arrow-${idx}" style="font-size:9px; color:#aaa; margin-left:4px; flex-shrink:0;">▶</span>
@@ -3161,9 +3163,9 @@ function showPlaidAccounts(items) {
         return `<div>
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;">
                 <span style="font-size:11px; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.5px;">
-                    🏛 ${item.institution || 'Live Accounts'}
+                    🏛 ${escapeHtml(item.institution || 'Live Accounts')}
                 </span>
-                <span onclick="plaidUnlinkItem('${item.itemId}', '${(item.institution || 'this bank').replace(/'/g, "\\'")}')"
+                <span onclick="plaidUnlinkItem(${escapeHtml(JSON.stringify(item.itemId))}, ${escapeHtml(JSON.stringify(item.institution || 'this bank'))})"
                       style="font-size:11px; color:#b00; cursor:pointer;">✕ Disconnect</span>
             </div>
             <div style="display:flex; flex-direction:column; gap:2px;">${acctsHtml}</div>
@@ -3220,11 +3222,11 @@ function toggleAcctPanel(idx) {
         const amtStr   = isCharge ? `-$${fmt(-t.amount, 2)}` : `+$${fmt(t.amount, 2)}`;
         const amtColor = isCharge ? '#c00' : '#2a7a2a';
         const balStr   = balAfter != null ? `$${fmt(balAfter, 2)}` : '—';
-        const desc     = t.desc || t.description || '—';
+        const desc     = escapeHtml(t.desc || t.description || '—');
 
         return `<div class="acct-txn-row">
             <span class="acct-txn-date">${dateStr}</span>
-            <span class="acct-txn-desc" title="${desc.replace(/"/g,'&quot;')}">${desc}</span>
+            <span class="acct-txn-desc" title="${desc}">${desc}</span>
             <span class="acct-txn-amt" style="color:${amtColor}">${amtStr}</span>
             <span class="acct-txn-bal">${balStr}</span>
         </div>`;
