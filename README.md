@@ -8,6 +8,9 @@ Motivation:
 There are phone apps out there that do this but we believe you shouldn't need to pay any subscription money to manage your finances. 
 If you are a fan of this app, PLEASE PLEASE raise issues (add link) for telling us ideas and bugs you want fixed. Even better, please contribute to this open-source project.
 
+Goal:
+Goal is for everyone to contirbute to this project by 1. raising and fixing issues 2. thinking/devleoping new features, and 3. being more aware of your finances
+
 ## Before you start
 
 - **Only run this on a computer you trust and control** — this app will hold real transaction history and (if you connect Plaid in production mode) bank access tokens. Don't run it on a shared or public machine.
