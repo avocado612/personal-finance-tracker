@@ -2,6 +2,8 @@
 
 [![Download for Linux](https://img.shields.io/badge/Download-Linux%20AppImage-blue?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/avocado612/personal-finance-tracker/releases/latest)
 
+ULTIMATE GOAL: create a free platform for people to activately and safety manage/track your finances with every helpful feature. 
+
 A Desktop App for tracking your budget and connects to your real bank accounts via [Plaid](https://plaid.com). Everything is local once you download the no information leaves your device.
 
 Motivation:
