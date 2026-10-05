@@ -6,10 +6,16 @@ function showTab(id, el) {
     document.querySelectorAll('.sheet').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
     el.classList.add('active');
-    if (id === 'subscription') renderDetectedSubscriptions();
-    if (id === 'monthly-real') renderMonthlyReal();
-    if (id === 'income') { renderIncomeDocsList(); renderIncomeStatementRates(); }
-    if (id === 'app-settings') appSettingsInit();
+    if (id === 'subscription') 
+        renderDetectedSubscriptions();
+    if (id === 'monthly-real')
+        renderMonthlyReal();
+    if (id === 'income') {
+        renderIncomeDocsList(); 
+        renderIncomeStatementRates(); 
+    }
+    if (id === 'app-settings') 
+        appSettingsInit();
 }
 
 /* ══════════════════════════════════════════

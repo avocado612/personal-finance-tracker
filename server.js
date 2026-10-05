@@ -42,8 +42,12 @@ function migrateLegacyDir(name) {
     .forEach(migrateLegacyFile);
 ['.income_data'].forEach(migrateLegacyDir);
 
-require('dotenv').config({ path: path.join(DATA_DIR, '.env') });
-const express  = require('express');
+//dotenv is an external Node.js package. its purpose is the read a .env file containing enviroment variables and move them to process.env
+require('dotenv').config({ 
+    path: path.join(DATA_DIR, '.env') 
+});
+
+const express  = require('express'); //imports express package
 const https    = require('https');
 const crypto   = require('crypto');
 const { PlaidApi, PlaidEnvironments, Configuration } = require('plaid');
@@ -69,7 +73,10 @@ const TOKEN_FILE    = path.join(DATA_DIR, '.plaid_token');       // legacy singl
 const ITEMS_FILE    = path.join(DATA_DIR, '.plaid_items.json');  // [{ item_id, access_token }, ...]
 const HISTORY_FILE  = path.join(DATA_DIR, '.plaid_history.json');
 const INCOME_DIR = path.join(DATA_DIR, '.income_data');
-if (!fs.existsSync(INCOME_DIR)) fs.mkdirSync(INCOME_DIR);
+
+if (!fs.existsSync(INCOME_DIR)) 
+    fs.mkdirSync(INCOME_DIR);
+
 const INCOME_CATEGORIES = ['paystub', 'w2', 'rsu', 'bonus'];
 const SETTINGS_FILE = path.join(DATA_DIR, '.budget_settings.json');
 const IS_PROD     = (process.env.PLAID_ENV || 'sandbox') === 'production';
@@ -112,8 +119,11 @@ function upsertEnvVar(key, value) {
     try { lines = fs.readFileSync(envPath, 'utf8').split('\n').filter(l => l !== ''); } catch { lines = []; }
     const idx = lines.findIndex(l => l.startsWith(`${key}=`));
     const newLine = `${key}=${value}`;
-    if (idx >= 0) lines[idx] = newLine;
-    else lines.push(newLine);
+    if (idx >= 0) 
+        lines[idx] = newLine;
+    else 
+        lines.push(newLine);
+
     fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf8');
 }
 
@@ -134,7 +144,8 @@ function compareVersions(a, b) {
     const pb = String(b).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
     for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
         const diff = (pa[i] || 0) - (pb[i] || 0);
-        if (diff !== 0) return diff;
+        if (diff !== 0)
+            return diff;
     }
     return 0;
 }
@@ -161,7 +172,7 @@ function loadItems() {
     catch { return []; }
 }
 function saveItems(items) {
-    fs.writeFileSync(ITEMS_FILE, JSON.stringify(items), 'utf8');
+    fs.writeFileSync(ITEMS_FILE, JSON.stringify(items, null, 2), 'utf8');
 }
 function addItem(item_id, access_token) {
     const items = loadItems().filter(i => i.item_id !== item_id);
@@ -177,7 +188,8 @@ function removeItem(item_id) {
 
 // One-time migration: legacy single-token file → items array
 async function migrateLegacyToken() {
-    if (!fs.existsSync(TOKEN_FILE)) return;
+    if (!fs.existsSync(TOKEN_FILE)) 
+        return;
     try {
         const access_token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
         if (access_token) {
@@ -195,13 +207,17 @@ async function migrateLegacyToken() {
 function loadPlaidHistory() {
     try {
         const h = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
-        if (!h.cursors) h.cursors = h.cursor ? { legacy: h.cursor } : {};
-        if (!h.transactions) h.transactions = {};
+        if (!h.cursors) 
+            h.cursors = h.cursor ? { legacy: h.cursor } : {};
+        if (!h.transactions) 
+            h.transactions = {};
         return h;
-    } catch { return { cursors: {}, transactions: {} }; }
+    } catch {
+        return { cursors: {}, transactions: {} }; 
+    }
 }
 function savePlaidHistory(data) {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(data), 'utf8');
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(data, null, 2), 'utf8');
 }
 
 // ── Step 1: create a link_token ──────────────────────────────────────────────
@@ -216,20 +232,22 @@ app.post('/api/create_link_token', async (req, res) => {
         };
 
         // Production needs a redirect_uri for banks that use OAuth (Wells Fargo does)
-        if (IS_PROD) params.redirect_uri = REDIRECT_URI;
+        if (IS_PROD) 
+            params.redirect_uri = REDIRECT_URI;
 
         // Re-linking an existing item (e.g. expired login) uses update mode with that item's token.
         // Connecting a NEW bank must NOT pass an existing access_token, or Plaid reopens that same item.
-        if (req.body?.update_mode && req.body?.access_token) params.access_token = req.body.access_token;
+        if (req.body?.update_mode && req.body?.access_token) 
+            params.access_token = req.body.access_token;
 
         const response = await plaidClient.linkTokenCreate(params);
+
         res.json({ link_token: response.data.link_token });
     } catch (err) {
         console.error('create_link_token error:', err.response?.data || err.message);
         res.status(500).json({ error: err.response?.data?.error_message || err.message });
     }
 });
-
 // ── Step 2: exchange public_token → access_token ─────────────────────────────
 app.post('/api/exchange_token', async (req, res) => {
     const { public_token } = req.body;
@@ -247,7 +265,8 @@ app.post('/api/exchange_token', async (req, res) => {
 // ── Step 3: fetch transactions (persistent accumulation via cursor) ───────────
 app.get('/api/transactions', async (req, res) => {
     const items = loadItems();
-    if (items.length === 0) return res.status(400).json({ error: 'No linked account. Connect your bank first.' });
+    if (items.length === 0) 
+        return res.status(400).json({ error: 'No linked account. Connect your bank first.' });
 
     try {
         // 1. Get all accounts across every linked bank (Item)
@@ -282,7 +301,8 @@ app.get('/api/transactions', async (req, res) => {
             let hasMore = true;
             while (hasMore) {
                 const params = { access_token: item.access_token };
-                if (cursor) params.cursor = cursor;
+                if (cursor)
+                        params.cursor = cursor;
                 const resp = await plaidClient.transactionsSync(params);
                 resp.data.added.forEach(t    => txnMap.set(t.transaction_id, t));
                 resp.data.modified.forEach(t => txnMap.set(t.transaction_id, t));
@@ -315,23 +335,40 @@ app.get('/api/transactions', async (req, res) => {
             /payroll/i,
             /\batm withdrawal\b/i,
         ];
-        const isExcluded = name => TRANSFER_PATTERNS.some(p => p.test(name));
+
+        // creates a function calls isExcluded(name) that goes through TRANSFER_PATTERNS and checks
+        // if an item matches "name" 
+        // const isExcluded = name => TRANSFER_PATTERNS.some(p => p.test(name));
+
+        function isExcluded(name) {
+            return TRANSFER_PATTERNS.some(function(p) {
+                return p.test(name);
+            });
+        }
         // Zelle/Venmo are peer-to-peer payments, not internal account transfers — Plaid often
         // buckets them as TRANSFER_OUT, but a Zelle to a roommate for rent (etc.) is a real
         // expense. Let these through so the client can show and (optionally) categorize them,
         // instead of silently dropping them like actual account-to-account transfers.
-        const isP2P = name => /\b(zelle|venmo)\b/i.test(name);
+        function isP2P(name) {
+            const pattern = /\b(zelle|venmo)\b/i;
+            return pattern.test(name);
+        }
 
         const filtered = [...txnMap.values()].filter(t => {
             const acct = acctMap.get(t.account_id);
-            if (!acct) return false;
-            if (!spendingIds.has(t.account_id)) return false;
+            if (!acct) 
+                return false;
+            if (!spendingIds.has(t.account_id))
+                return false;
             if (!isP2P(t.name)) {
-                if (EXCLUDE_PLAID_CATS.has(t.personal_finance_category?.primary)) return false;
-                if (isExcluded(t.name)) return false;
+                if (EXCLUDE_PLAID_CATS.has(t.personal_finance_category?.primary)) 
+                    return false;
+                if (isExcluded(t.name))
+                    return false;
             }
             // For depository: only include positive amounts (debits = money leaving account)
-            if (acct.type === 'depository' && t.amount <= 0) return false;
+            if (acct.type === 'depository' && t.amount <= 0) 
+                return false;
             return true;
         });
 
@@ -409,10 +446,12 @@ app.get('/api/accounts', async (req, res) => {
 // Disconnects one linked bank (Item) without touching the others
 app.post('/api/unlink', async (req, res) => {
     const { itemId } = req.body || {};
-    if (!itemId) return res.status(400).json({ error: 'itemId is required' });
+    if (!itemId)
+        return res.status(400).json({ error: 'itemId is required' });
 
     const removed = removeItem(itemId);
-    if (!removed) return res.status(404).json({ error: 'No such linked item' });
+    if (!removed) 
+        return res.status(404).json({ error: 'No such linked item' });
 
     try {
         // Drop that item's transactions from history so they don't linger unsynced
@@ -421,7 +460,8 @@ app.post('/api/unlink', async (req, res) => {
 
         const history = loadPlaidHistory();
         for (const [txnId, t] of Object.entries(history.transactions)) {
-            if (removedAcctIds.has(t.account_id)) delete history.transactions[txnId];
+            if (removedAcctIds.has(t.account_id))
+                delete history.transactions[txnId];
         }
         delete history.cursors[itemId];
         savePlaidHistory(history);
@@ -429,8 +469,12 @@ app.post('/api/unlink', async (req, res) => {
         console.warn('unlink cleanup skipped:', err.response?.data || err.message);
     }
 
-    try { await plaidClient.itemRemove({ access_token: removed.access_token }); }
-    catch (err) { console.warn('itemRemove skipped:', err.response?.data || err.message); }
+    try {
+        await plaidClient.itemRemove({ access_token: removed.access_token }); 
+    }
+    catch (err) { 
+        console.warn('itemRemove skipped:', err.response?.data || err.message); 
+    }
 
     res.json({ ok: true });
 });
@@ -482,7 +526,7 @@ app.post('/api/save-income-doc', (req, res) => {
         if (!record || typeof record !== 'object')
             return res.status(400).json({ error: 'No record provided' });
         const filePath = path.join(INCOME_DIR, `${category}.json`);
-        fs.writeFileSync(filePath, JSON.stringify(record), 'utf8');
+        fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf8');
         console.log(`Income doc saved [${category}]: ${record.fileName || ''}`);
         res.json({ ok: true, category });
     } catch (err) {
@@ -527,7 +571,7 @@ app.post('/api/save-settings', (req, res) => {
         const settings = req.body;
         if (!settings || typeof settings !== 'object')
             return res.status(400).json({ error: 'No settings provided' });
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings), 'utf8');
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
         res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

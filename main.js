@@ -24,7 +24,11 @@ function sendUpdateEvent(payload) {
     }
 }
 
-autoUpdater.on('checking-for-update', () => sendUpdateEvent({ type: 'checking' }));
+
+// execute the callback function when autoUpdater gets a 'blah blah' update
+autoUpdater.on('checking-for-update', () => sendUpdateEvent({ type: 'checking' })); 
+
+//info message holds type and version
 autoUpdater.on('update-available',    (info) => sendUpdateEvent({ type: 'available', version: info.version }));
 autoUpdater.on('update-not-available', (info) => sendUpdateEvent({ type: 'not-available', version: info.version }));
 autoUpdater.on('download-progress',   (progress) => sendUpdateEvent({ type: 'progress', percent: progress.percent }));
@@ -44,6 +48,7 @@ function configureUpdateFeed() {
     });
 }
 
+/* the 3 handles required for checking/updating/downloading/installing the app */
 ipcMain.handle('update:check', async () => {
     try {
         configureUpdateFeed();
@@ -54,7 +59,6 @@ ipcMain.handle('update:check', async () => {
         return { ok: false, error: err.message };
     }
 });
-
 ipcMain.handle('update:download', async () => {
     try {
         await autoUpdater.downloadUpdate();
@@ -64,10 +68,10 @@ ipcMain.handle('update:download', async () => {
         return { ok: false, error: err.message };
     }
 });
-
 ipcMain.handle('update:install', () => {
     autoUpdater.quitAndInstall(false, true);
 });
+
 
 async function createWindow() {
     const { protocol, port } = await startServer();
@@ -111,11 +115,13 @@ async function createWindow() {
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
-    // Server lives in this same process, so quitting the last window quits
-    // the whole app (matches normal desktop-app behavior on Linux).
+    
+    // macOS is different
     if (process.platform !== 'darwin') app.quit();
 });
 
+
+// macOS is different
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });

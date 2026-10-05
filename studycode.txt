@@ -1,0 +1,3 @@
+await can only be used in a async function. 
+
+await calls a function, and it blocks the function from moving forward. however, other background tasks can run. 
